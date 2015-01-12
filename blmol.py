@@ -43,12 +43,14 @@ COLORS = { 'white': (1.0, 1.0, 1.0),
 ELEMENT_COLORS = { 1: 'white',
                    6: 'gray',
                    7: 'royal_blue',
-                   8: 'red' }
+                   8: 'red',
+                   17: 'green' }
 
 ELEMENT_COLORS_CB = { 1: 'white',
                       2: 'gray',
                       7: 'blue_cb',
-                      8: 'vermillion_cb' }
+                      8: 'vermillion_cb',
+                      17: 'bluish_green_cb' }
 
 # Conversion factors for 1 BU. Default is typically 1 nm. Assumes geometries are input with coords
 # in angstroms.
@@ -59,7 +61,8 @@ UNIT_CONV = { 'nm': 0.1,
 ATOMIC_NUMBERS = { 'H': 1,
 				   'C': 6,
 				   'N': 7,
-				   'O': 8 }
+				   'O': 8,
+                   'Cl': 17 }
 
 def _create_new_material(name, color):
     """Create a new material.
@@ -100,7 +103,8 @@ class atom:
     RADII = { 1: 1.20,
               6: 1.70,
               7: 1.55,
-              8: 1.52}
+              8: 1.52,
+              17: 1.75 }
 
     def __init__(self, atomic_number, location, id_num):
         self.at_num = atomic_number
