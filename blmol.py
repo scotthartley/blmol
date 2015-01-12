@@ -59,9 +59,9 @@ UNIT_CONV = { 'nm': 0.1,
 
 
 ATOMIC_NUMBERS = { 'H': 1,
-				   'C': 6,
-				   'N': 7,
-				   'O': 8,
+                   'C': 6,
+                   'N': 7,
+                   'O': 8,
                    'Cl': 17 }
 
 def _create_new_material(name, color):
@@ -266,10 +266,16 @@ class molecule:
         bonds (list, = []): List of bonds (bond objects) in molecule.
     """
 
-    def __init__(self, name='molecule', atoms=[], bonds=[]):
+    def __init__(self, name='molecule', atoms=None, bonds=None):
         self.name = name
-        self.atoms = atoms
-        self.bonds = bonds
+        if atoms == None:
+            self.atoms = []
+        else:
+            self.atoms = atoms
+        if bonds == None:
+            self.bonds = []
+        else:
+            self.bonds = bonds
     
     def add_atom(self, atom):
         """Adds an atom to the molecule."""
@@ -380,60 +386,30 @@ class molecule:
         else:
             return None
 
-    @classmethod
     def read_pdb(self, filename="/Users/hartlecs/blmol.pdb"):
-    	"""Loads a pdb file into a molecule object. Only accepts atoms with cartesian coords through
-    	the HETATM label and bonds through the CONECT label.
+        """Loads a pdb file into a molecule object. Only accepts atoms with Cartesian coords through
+        the HETATM label and bonds through the CONECT label.
 
-    	Args:
-    		filename (string): The target file.
+        Args:
+            filename (string): The target file.
+        """
 
-    	Returns:
-    		The molecule object.
+        with open(filename) as pdbfile:
+            for line in pdbfile:
+                if line[0:6] == "HETATM":
+                    idnum = int(line[6:11])
+                    atnum = ATOMIC_NUMBERS[line[76:78].strip()]
+                    coords = np.array((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+                    self.add_atom(atom(atnum, coords, idnum))
 
-    	"""
+                elif line[0:6] == "CONECT":
 
-    	newmol = molecule()
-
-    	with open(filename) as pdbfile:
-    		for line in pdbfile:
-    			if line[0:6] == "HETATM":
-    				idnum = int(line[6:11])
-    				atnum = ATOMIC_NUMBERS[line[76:78].strip()]
-    				coords = np.array((float(line[30:38]), float(line[38:46]), float(line[46:54])))
-    				newmol.add_atom(atom(atnum, coords, idnum))
-
-    			elif line[0:6] == "CONECT":
-
-    				# Loads atoms as a list. First atom is bonded to the remaining atoms (up to
-    				# four).
-    				atoms = line[6:].split()
-    				for bonded_atom in atoms[1:]:
-    					# print(atoms[0], bonded_atom)
-    					newmol.add_bond(int(atoms[0]), int(bonded_atom))
-    				
-    	return newmol
-
-
-    # def load_pybel(self, filename="/Users/hartlecs/Dropbox/pybel_blender/oP6-Aida_AAA-2_b97d-tzv2d2p_OPT_DF.pdb", 
-   	# 				 kind="pdb"):
-    #     """Uses the pybel (and openbabel) modules to load in molecular geometries.
-
-    #     Args:
-    #         kind (string, ="pdb"): The type of file to be read. See the pybel documentation.
-    #         filename (string): The file to be read.
-    #     """
-
-    #     all_molecules = [mol for mol in pybel.readfile(kind, filename)]
-
-    #     for m in all_molecules:
-    #         for a in m.atoms:
-    #             self.add_atom(atom(atomic_number=a.atomicnum, 
-    #                                location=np.array(tuple(n for n in a.coords)),
-    #                                id_num=a.idx))
-    #         for b in openbabel.OBMolBondIter(m.OBMol):
-    #             self.add_bond(b.GetBeginAtom().GetIdx(), b.GetEndAtom().GetIdx())
-
+                    # Loads atoms as a list. First atom is bonded to the remaining atoms (up to
+                    # four).
+                    atoms = line[6:].split()
+                    for bonded_atom in atoms[1:]:
+                        # print(atoms[0], bonded_atom)
+                        self.add_bond(int(atoms[0]), int(bonded_atom))
 
     def write(self, filename="/Users/hartlecs/blender_molecule_output"):
         """Writes the object to a file using pickle.
