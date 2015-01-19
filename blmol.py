@@ -65,11 +65,11 @@ ATOMIC_NUMBERS = { 'H': 1,
                    'Cl': 17 }
 
     # Dictionary of Van der Waals radii, by atomic number, from Wolfram Alpha.
-    RADII = { 1: 1.20,
-              6: 1.70,
-              7: 1.55,
-              8: 1.52,
-              17: 1.75 }
+RADII = { 1: 1.20,
+          6: 1.70,
+          7: 1.55,
+          8: 1.52,
+          17: 1.75 }
 
 
 def _create_new_material(name, color):
