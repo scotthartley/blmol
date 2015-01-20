@@ -1,9 +1,10 @@
 """Scripts for loading molecular geometries into Blender.
 
-    Main use is to define the "molecule" object, which can be used to draw
-    models of molecular coordinates.
+    Main use is to define the "molecule" object, which can be used to
+    draw models of molecular coordinates.
 
-    Written by Scott Hartley, www.hartleygroup.org and blog.hartleygroup.org.
+    Written by Scott Hartley, www.hartleygroup.org and
+    blog.hartleygroup.org.
 
     Hosted here:
 
@@ -19,68 +20,95 @@
     https://github.com/patrickfuller/blender-chemicals
 """
 
-import pickle, os, numpy as np
+import numpy as np
 
-# Python outside of Blender doesn't play all that well with bpy, so need to
-# handle ImportError.
+# Python outside of Blender doesn't play all that well with bpy, so need
+# to handle ImportError.
 try:
     import bpy
     bpy_avail = True
 except ImportError:
     bpy_avail = False
 
-# Dictionary of color definitions (RGB tuples). Blender RGB colors can be
-# conveniently determined by using a uniform png of the desired color as a
-# background image, then using the eyedropper.
-# Colors with the "_cb" tag are based on colorblind-safe colors as described 
-# in this Nature Methods editorial DOI:10.1038/nmeth.1618.
-COLORS = { 'white': (1.0, 1.0, 1.0),
-           'light_gray': (0.7,0.7,0.7),
-           'black': (0, 0, 0),
-           'gray': (0.2, 0.2, 0.2),
-           'red': (0.8, 0, 0),
-           'royal_blue': (0.255, 0.412, 0.882),
-           'green': (0.133, 0.545, 0.133),
-           'purple': (0.627, 0.125, 0.941),
-           'orange': (1.0, 0.647, 0),
-           'blue_cb': (0, 0.168, 0.445),
-           'vermillion_cb': (0.665, 0.112, 0),
-           'bluish_green_cb': (0, 0.620, 0.451),
-           'reddish_purple_cb': (0.800, 0.475, 0.655),
-           'sky_blue_cb': (0.337, 0.706, 0.914),
-           'orange_cb': (0.791, 0.347, 0),
-           'yellow_cb': (0.871, 0.776, 0.054)
-         }
+# Dictionary of color definitions (RGB tuples). Blender RGB colors can
+# be conveniently determined by using a uniform png of the desired color
+# as a background image, then using the eyedropper. Colors with the
+# "_cb" tag are based on colorblind-safe colors as described in this
+# Nature Methods editorial DOI:10.1038/nmeth.1618.
+COLORS = {
+    'black': (0, 0, 0),
+    'dark_red': (0.55, 0, 0),
+    'gray': (0.2, 0.2, 0.2),
+    'green': (0.133, 0.545, 0.133),
+    'indigo': (0.294, 0, 0.509),
+    'light_gray': (0.7,0.7,0.7),
+    'orange': (1.0, 0.647, 0),
+    'purple': (0.627, 0.125, 0.941),
+    'red': (0.8, 0, 0),
+    'royal_blue': (0.255, 0.412, 0.882),
+    'white': (1.0, 1.0, 1.0),
+    'yellow': (1.0, 1.0, 0),
+    'blue_cb': (0, 0.168, 0.445),
+    'bluish_green_cb': (0, 0.620, 0.451),
+    'orange_cb': (0.791, 0.347, 0),
+    'reddish_purple_cb': (0.800, 0.475, 0.655),
+    'sky_blue_cb': (0.337, 0.706, 0.914),
+    'vermillion_cb': (0.665, 0.112, 0),
+    'yellow_cb': (0.871, 0.776, 0.054)
+    }
 
-ATOMIC_NUMBERS = { 'H': 1,
-                   'C': 6,
-                   'N': 7,
-                   'O': 8,
-                   'Cl': 17 
-                 }
+ATOMIC_NUMBERS = {
+    'H': 1,
+    'B': 5,
+    'C': 6,
+    'N': 7,
+    'O': 8,
+    'F': 9,
+    'P': 15,
+    'S': 16,
+    'Cl': 17,
+    'Br': 35,
+    'I': 53
+    }
 
-# Dictionary of Van der Waals radii, by atomic number, from Wolfram Alpha.
-RADII = { 1: 1.20,
-          6: 1.70,
-          7: 1.55,
-          8: 1.52,
-          17: 1.75 
-        }
+# Dictionary of Van der Waals radii, by atomic number, from Wolfram
+# Alpha.
+RADII = { 
+    1: 1.20,
+    5: 1.92, # From wikipedia
+    6: 1.70,
+    7: 1.55,
+    8: 1.52,
+    9: 1.47,
+    15: 1.80,
+    16: 1.80,
+    17: 1.75,
+    35: 1.85,
+    53: 1.98
+    }
 
 # Dictionaries of colors for drawing elements, by atomic number. Used by
 # several functions when the `color = 'by_element'` option is passed.
-ELEMENT_COLORS = { 1: 'white',
-                   6: 'gray',
-                   7: 'royal_blue',
-                   8: 'red',
-                   17: 'green'
-                 }
+ELEMENT_COLORS = { 
+    1: 'white',
+    5: 'orange',
+    6: 'gray',
+    7: 'royal_blue',
+    8: 'red',
+    9: 'green',
+    15: 'orange',
+    16: 'yellow',
+    17: 'green',
+    35: 'dark_red',
+    53: 'indigo'
+    }
 
-# Conversion factors for 1 BU. Default is typically 1 nm. Assumes geometries
-# are input with coords in angstroms.
-UNIT_CONV = { 'nm': 0.1,
-              'A': 1.0 
-            }
+# Conversion factors for 1 BU. Default is typically 1 nm. Assumes
+# geometries are input with coords in angstroms.
+UNIT_CONV = { 
+    'nm': 0.1,
+    'A': 1.0 
+    }
 
 
 def _create_new_material(name, color):
@@ -89,7 +117,7 @@ def _create_new_material(name, color):
     Args:
         name (str): Name for the new material (e.g., 'red')
         color (tuple): RGB color for the new material (diffuse_color) 
-            (e.g., (1,0,0))
+            (e.g., (1, 0, 0))
     Returns:
         The new material.
     """
@@ -110,12 +138,13 @@ def _create_new_material(name, color):
     return mat
 
 
-class atom:
+class Atom:
     """A single atom.
 
     Attributes:
         at_num (int): The atomic number of the atom.
-        location (numpy array): The xyz location of the atom, in angstroms.
+        location (numpy array): The xyz location of the atom, in 
+            Angstroms.
         id_num (int): A unique identifier number.
     """
 
@@ -124,7 +153,8 @@ class atom:
         self.location = location # np.array
         self.id_num = id_num
 
-    def draw(self, color='by_element', radius=None, units='nm', scale=1.0):
+    def draw(self, color='by_element', radius=None, units='nm', 
+             scale=1.0):
         """Draw the atom in Blender.
 
         Args:
@@ -132,17 +162,17 @@ class atom:
                 element. Otherwise specifies the color.
             radius (string, =None): If None, draws at the van der Waals
                 radius. Otherwise specifies the radius in angstroms.
-            units (sting, ='nm'): 1 BU = 1 nm by default. Can also be set to
-                angstroms.
-            scale (float, =1.0): Scaling factor for the atom. Useful when
-                generating ball-and-stick models.
+            units (sting, ='nm'): 1 BU = 1 nm by default. Can also be
+                set to angstroms.
+            scale (float, =1.0): Scaling factor for the atom. Useful
+                when generating ball-and-stick models.
 
         Returns:
             The blender object.
         """
 
         # The corrected location (i.e., scaled to units.)
-        loc_corr = tuple(c * UNIT_CONV[units] for c in self.location)
+        loc_corr = tuple(c*UNIT_CONV[units] for c in self.location)
 
         if not radius:
             bpy.ops.mesh.primitive_uv_sphere_add(
@@ -168,14 +198,13 @@ class atom:
 
         bpy.context.object.data.materials.append(
             bpy.data.materials[atom_color])
-
         bpy.context.object.name = "atom({})_{}".format(self.at_num, 
                                                        self.id_num)
 
         return bpy.context.object
 
 
-class bond:
+class Bond:
     """A bond between two atoms.
 
     Attributes:
@@ -188,12 +217,12 @@ class bond:
         self.atom2 = atom2
 
     @staticmethod
-    def _draw_half(location, length, rot_angle, rot_axis, element, radius=0.2, 
-                   color='by_element', units='nm'):
+    def _draw_half(location, length, rot_angle, rot_axis, element, 
+                   radius=0.2, color='by_element', units='nm'):
         """Draw half of a bond (static method).
 
-        Draws half of a bond, given the location and length. Bonds are drawn
-        in halves to facilitate coloring by element.
+        Draws half of a bond, given the location and length. Bonds are
+        drawn in halves to facilitate coloring by element.
 
         Args:
             location (np.array): The center point of the half bond.
@@ -203,16 +232,16 @@ class bond:
             element (int): atomic number of element of the bond (for 
                 coloring).
             radius (float, =0.2): radius of the bond.
-            color (string, ='by_element'): color of the bond. If 'by_element',
-                uses element coloring.
-            units (string, ='nm'): 1 BU = 1 nm, by default. Can change to
-                angstroms ('A').
+            color (string, ='by_element'): color of the bond. If
+                'by_element', uses element coloring.
+            units (string, ='nm'): 1 BU = 1 nm, by default. Can change
+                to angstroms ('A').
 
         Returns:
             The new bond (Blender object).
         """
 
-        loc_corr = tuple(c * UNIT_CONV[units] for c in location)
+        loc_corr = tuple(c*UNIT_CONV[units] for c in location)
         len_corr = length * UNIT_CONV[units]
         radius_corr = radius * UNIT_CONV[units]
 
@@ -242,10 +271,10 @@ class bond:
 
         Args:
             radius (float, =0.2): Radius of cylinder in angstroms.
-            color (string, ='by_element'): Color of the bond. If 'by_element',
-                each half gets element coloring.
-            units (string, ='nm'): 1 BU = 1 nm, by default. Can change to 
-                angstroms ('A').
+            color (string, ='by_element'): Color of the bond. If
+                'by_element', each half gets element coloring.
+            units (string, ='nm'): 1 BU = 1 nm, by default. Can change
+                to angstroms ('A').
 
         Returns:
             The bond (Blender object), with both halves joined.
@@ -263,12 +292,12 @@ class bond:
         angle = -np.arccos(np.dot(cyl_axis, bond_axis))
 
         start_center = (self.atom1.location + center_loc)/2
-        created_objects.append(bond._draw_half(start_center, length/2, angle, 
+        created_objects.append(Bond._draw_half(start_center, length/2, angle, 
                                rot_axis, self.atom1.at_num, radius, color, 
                                units))
 
         end_center = (self.atom2.location + center_loc)/2
-        created_objects.append(bond._draw_half(end_center, length/2, angle, 
+        created_objects.append(Bond._draw_half(end_center, length/2, angle, 
                                rot_axis, self.atom2.at_num, radius, color, 
                                units))
 
@@ -286,7 +315,7 @@ class bond:
         return bpy.context.object
 
 
-class molecule:
+class Molecule:
     """The molecule object.
 
     Attributes:
@@ -312,23 +341,23 @@ class molecule:
     def add_bond(self, a1id, a2id):
         """Adds a bond to the molecule, using atom ids."""
         if not self.search_bondids(a1id, a2id):
-            self.bonds.append(bond(self.search_atomid(a1id), 
+            self.bonds.append(Bond(self.search_atomid(a1id), 
                                    self.search_atomid(a2id)))
 
     def search_atomid(self, id_to_search):
-        """Searches through atom list and returns atom object corresponding to
-        (unique) id."""
+        """Searches through atom list and returns atom object
+        corresponding to (unique) id."""
         for atom in self.atoms:
             if atom.id_num == id_to_search:
                 return atom
         return None
 
     def search_bondids(self, id1, id2):
-        """Searches through bond list and returns bond object corresponding to
-        (unique) ids."""
+        """Searches through bond list and returns bond object
+        corresponding to (unique) ids."""
         for b in self.bonds:
-            if ( (id1, id2) == (b.atom1.id_num, b.atom2.id_num) or 
-                 (id2, id1) == (b.atom1.id_num, b.atom2.id_num) ):
+            if ((id1, id2) == (b.atom1.id_num, b.atom2.id_num) or
+                    (id2, id1) == (b.atom1.id_num, b.atom2.id_num)):
                 return b
         return None
 
@@ -338,19 +367,19 @@ class molecule:
 
         Args:
             caps (bool, =True): If true, each bond capped with sphere of
-                radius at atom position. Make false if drawing ball-and-stick
-                model using separate atom drawings.
+                radius at atom position. Make false if drawing
+                ball-and-stick model using separate atom drawings.
             radius (float, =0.2): Radius of bonds in angstroms.
             color (string, ='by_element'): Color of the bonds. If
                 'by_element', each gets element coloring.
-            units (string, ='nm'): 1 BU = 1 nm, by default. Can change to
-                angstroms ('A').
-            join (bool, =True): If true, all bonds are joined together into a 
-                single Bl object.
+            units (string, ='nm'): 1 BU = 1 nm, by default. Can change
+                to angstroms ('A').
+            join (bool, =True): If true, all bonds are joined together
+                into a single Bl object.
 
         Returns:
-            The bonds as a single Blender object, if join=True. Otherwise, 
-            None.
+            The bonds as a single Blender object, if join=True.
+            Otherwise, None.
         """
         
         created_objects = []
@@ -392,19 +421,21 @@ class molecule:
 
         Args: 
             color (str, ='by_element'): If 'by_element', uses colors in
-                ELEMENT_COLORS. Otherwise, can specify color for whole model.
-                Must be defined in COLORS.
-            radius (float, =None): If specified, gives radius of all atoms.
+                ELEMENT_COLORS. Otherwise, can specify color for whole
+                model. Must be defined in COLORS.
+            radius (float, =None): If specified, gives radius of all 
+                atoms.
             units (str, ='nm'): Units for 1 BU. Can also be A.
-            join (bool, =True): If true, all atoms are joined together into a
-                single Bl object.
+            join (bool, =True): If true, all atoms are joined together
+                into a single Bl object.
 
         Returns:
-            The atoms as a single Blender object, if join=True. Otherwise, 
-            None.
+            The atoms as a single Blender object, if join=True.
+            Otherwise, None.
         """
 
-        # Holds links to all created objects, so that they can be joined.
+        # Holds links to all created objects, so that they can be
+        # joined.
         created_objects = [] 
 
         for a in self.atoms:
@@ -430,9 +461,9 @@ class molecule:
             return None
 
     def read_pdb(self, filename):
-        """Loads a pdb file into a molecule object. Only accepts atoms with
-        Cartesian coords through the HETATM label and bonds through the CONECT
-        label.
+        """Loads a pdb file into a molecule object. Only accepts atoms
+        with Cartesian coords through the HETATM label and bonds through
+        the CONECT label.
 
         Args:
             filename (string): The target file.
@@ -445,7 +476,7 @@ class molecule:
                     atnum = ATOMIC_NUMBERS[line[76:78].strip()]
                     coords = np.array((float(line[30:38]), float(line[38:46]), 
                                        float(line[46:54])))
-                    self.add_atom(atom(atnum, coords, idnum))
+                    self.add_atom(Atom(atnum, coords, idnum))
 
                 elif line[0:6] == "CONECT":
 
@@ -455,30 +486,3 @@ class molecule:
                     for bonded_atom in atoms[1:]:
                         # print(atoms[0], bonded_atom)
                         self.add_bond(int(atoms[0]), int(bonded_atom))
-
-    def write(self, filename):
-        """Writes the object to a file using pickle.
-
-        Args:
-            filename (string): the target file.
-        """
-
-        with open(filename, 'wb') as output_file:
-            pickle.dump(self, output_file)
-
-
-    @classmethod
-    def read(self, filename):
-        """Reads in a molecule object from a file.
-
-        Args:
-            filename (string): The target file.
-
-        Returns:
-            The molecule object.
-        """
-        with open(filename, 'rb') as input_file:
-            newmol = pickle.load(input_file)
-
-        return newmol
-
