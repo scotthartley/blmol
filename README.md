@@ -8,6 +8,6 @@ Simply copy to Blender's scripts folder.
 
 ## Usage
 
-Basic usage is to switch to the Scripting screen layout, then `import blmol`. Create a molecule object with `m = blmol.molecules()`, then load the geometry with `m.read_pdb('path/to/file.pdb')`. A space filling model can be generated with `m.draw_atoms()`. Many options can be changed as documented within the comments (more details to come here).
+Basic usage is to switch to the Scripting screen layout, then `import blmol`. Create a molecule object with `m = blmol.Molecule()`, then load the geometry with `m.read_pdb('path/to/file.pdb')`. A space filling model can be generated with `m.draw_atoms()`. Many options can be changed as documented within the comments (more details to come here).
 
 [Blender]: http://www.blender.org
