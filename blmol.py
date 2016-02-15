@@ -189,6 +189,7 @@ class Atom:
 
         bpy.ops.object.shade_smooth()
         bpy.ops.object.modifier_add(type='SUBSURF')
+        bpy.ops.object.modifier_apply(modifier='Subsurf')
 
         if color == 'by_element':
             atom_color = ELEMENT_COLORS[self.at_num]
@@ -253,6 +254,7 @@ class Bond:
         bpy.ops.transform.rotate(value=rot_angle, axis=rot_axis)
         bpy.ops.object.shade_smooth()
         bpy.ops.object.modifier_add(type='EDGE_SPLIT')
+        bpy.ops.object.modifier_apply(modifier='EdgeSplit')
 
         if color == 'by_element':
             bond_color = ELEMENT_COLORS[element]
