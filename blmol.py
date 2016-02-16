@@ -112,7 +112,6 @@ UNIT_CONV = {
     'A': 1.0 
     }
 
-
 def _create_new_material(name, color):
     """Create a new material.
 
@@ -226,7 +225,8 @@ class Bond:
 
     @staticmethod
     def _draw_half(location, length, rot_angle, rot_axis, element, 
-                   radius=0.2, color='by_element', units='nm'):
+                   radius=0.2, color='by_element', units='nm',
+                   vertices=64, edge_split=False):
         """Draw half of a bond (static method).
 
         Draws half of a bond, given the location and length. Bonds are
@@ -244,6 +244,10 @@ class Bond:
                 'by_element', uses element coloring.
             units (string, ='nm'): 1 BU = 1 nm, by default. Can change
                 to angstroms ('A').
+            vertices (int, =64): Number of vertices in each bond
+                cylinder.
+            edge_split (bool, =False): Whether to apply the edge split
+                modifier to each bond.
 
         Returns:
             The new bond (Blender object).
@@ -253,13 +257,16 @@ class Bond:
         len_corr = length * UNIT_CONV[units]
         radius_corr = radius * UNIT_CONV[units]
 
-        bpy.ops.mesh.primitive_cylinder_add(radius=radius_corr, 
+        bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,
+                                            radius=radius_corr, 
                                             depth=len_corr, location=loc_corr, 
                                             end_fill_type='NOTHING')
         bpy.ops.transform.rotate(value=rot_angle, axis=rot_axis)
         bpy.ops.object.shade_smooth()
-        bpy.ops.object.modifier_add(type='EDGE_SPLIT')
-        bpy.ops.object.modifier_apply(modifier='EdgeSplit')
+
+        if edge_split:
+            bpy.ops.object.modifier_add(type='EDGE_SPLIT')
+            bpy.ops.object.modifier_apply(modifier='EdgeSplit')
 
         if color == 'by_element':
             bond_color = ELEMENT_COLORS[element]
@@ -275,7 +282,8 @@ class Bond:
         return bpy.context.object
 
 
-    def draw(self, radius=0.2, color='by_element', units='nm'):
+    def draw(self, radius=0.2, color='by_element', units='nm',
+             vertices=64, edge_split=False):
         """Draw the bond as two half bonds (to allow coloring).
 
         Args:
@@ -284,6 +292,10 @@ class Bond:
                 'by_element', each half gets element coloring.
             units (string, ='nm'): 1 BU = 1 nm, by default. Can change
                 to angstroms ('A').
+            vertices (int, =64): Number of vertices in each bond
+                cylinder.
+            edge_split (bool, =False): Whether to apply the edge split
+                modifier to each bond.
 
         Returns:
             The bond (Blender object), with both halves joined.
@@ -303,12 +315,12 @@ class Bond:
         start_center = (self.atom1.location + center_loc)/2
         created_objects.append(Bond._draw_half(start_center, length/2, angle, 
                                rot_axis, self.atom1.at_num, radius, color, 
-                               units))
+                               units, vertices, edge_split))
 
         end_center = (self.atom2.location + center_loc)/2
         created_objects.append(Bond._draw_half(end_center, length/2, angle, 
                                rot_axis, self.atom2.at_num, radius, color, 
-                               units))
+                               units, vertices, edge_split))
 
         for obj in bpy.context.selected_objects:
             obj.select = False
@@ -371,7 +383,8 @@ class Molecule:
         return None
 
     def draw_bonds(self, caps=True, radius=0.2, color='by_element', 
-                   units='nm', join=True, with_H=True, subsurf_level=1):
+                   units='nm', join=True, with_H=True, subsurf_level=1,
+                   vertices=64, edge_split=False):
         """Draws the molecule's bonds.
 
         Args:
@@ -388,6 +401,10 @@ class Molecule:
             with_H (bool, =True): Include H's.
             subsurf_level (int, =1): Subsurface subdivisions that will
             	be applied to the atoms (end caps).
+            vertices (int, =64): Number of vertices in each bond
+                cylinder.
+            edge_split (bool, =False): Whether to apply the edge split
+                modifier to each bond.
 
         Returns:
             The bonds as a single Blender object, if join=True.
@@ -398,16 +415,19 @@ class Molecule:
 
         for b in self.bonds:
             if with_H or ( b.atom1.at_num != 1 and b.atom2.at_num != 1 ):
-                created_objects.append(b.draw(radius = radius, color = color, 
-                                              units = units))
+                created_objects.append(b.draw(radius=radius,
+                                              color=color, 
+                                              units=units, 
+                                              vertices=vertices,
+                                              edge_split=edge_split))
 
         if caps:
             for a in self.atoms:
                 if with_H or a.at_num != 1:
-                    created_objects.append(a.draw(color = color, 
-                                                  radius = radius, 
-                                                  units = units,
-                                                  subsurf_level = subsurf_level))
+                    created_objects.append(a.draw(color=color, 
+                                                  radius=radius, 
+                                                  units=units,
+                                                  subsurf_level=subsurf_level))
         
         if join:
             # Deselect anything currently selected.
