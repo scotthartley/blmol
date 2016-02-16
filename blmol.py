@@ -156,7 +156,7 @@ class Atom:
         self.id_num = id_num
 
     def draw(self, color='by_element', radius=None, units='nm', 
-             scale=1.0):
+             scale=1.0, subsurf_level=2):
         """Draw the atom in Blender.
 
         Args:
@@ -168,6 +168,8 @@ class Atom:
                 set to angstroms.
             scale (float, =1.0): Scaling factor for the atom. Useful
                 when generating ball-and-stick models.
+            subsurf_level (int, =2): Subsurface subdivisions that will
+            	be applied.
 
         Returns:
             The blender object.
@@ -188,8 +190,11 @@ class Atom:
                 )
 
         bpy.ops.object.shade_smooth()
-        bpy.ops.object.modifier_add(type='SUBSURF')
-        bpy.ops.object.modifier_apply(modifier='Subsurf')
+
+        if subsurf_level != 0:
+        	bpy.ops.object.modifier_add(type='SUBSURF')
+        	bpy.context.object.modifiers['Subsurf'].levels = subsurf_level
+        	bpy.ops.object.modifier_apply(modifier='Subsurf')
 
         if color == 'by_element':
             atom_color = ELEMENT_COLORS[self.at_num]
@@ -366,7 +371,7 @@ class Molecule:
         return None
 
     def draw_bonds(self, caps=True, radius=0.2, color='by_element', 
-                   units='nm', join=True, with_H=True):
+                   units='nm', join=True, with_H=True, subsurf_level=1):
         """Draws the molecule's bonds.
 
         Args:
@@ -380,6 +385,9 @@ class Molecule:
                 to angstroms ('A').
             join (bool, =True): If true, all bonds are joined together
                 into a single Bl object.
+            with_H (bool, =True): Include H's.
+            subsurf_level (int, =1): Subsurface subdivisions that will
+            	be applied to the atoms (end caps).
 
         Returns:
             The bonds as a single Blender object, if join=True.
@@ -398,7 +406,8 @@ class Molecule:
                 if with_H or a.at_num != 1:
                     created_objects.append(a.draw(color = color, 
                                                   radius = radius, 
-                                                  units = units))
+                                                  units = units,
+                                                  subsurf_level = subsurf_level))
         
         if join:
             # Deselect anything currently selected.
@@ -420,7 +429,7 @@ class Molecule:
 
 
     def draw_atoms(self, color='by_element', radius=None, units='nm', 
-                   scale=1.0, join=True, with_H=True):
+                   scale=1.0, join=True, with_H=True, subsurf_level=2):
         """Draw spheres for all atoms.
 
         Args: 
@@ -432,6 +441,9 @@ class Molecule:
             units (str, ='nm'): Units for 1 BU. Can also be A.
             join (bool, =True): If true, all atoms are joined together
                 into a single Bl object.
+            with_H (bool, =True): Include the hydrogens.
+            subsurf_level (int, =2): Subsurface subdivisions that will
+            	be applied to the atoms.
 
         Returns:
             The atoms as a single Blender object, if join=True.
@@ -445,7 +457,8 @@ class Molecule:
         for a in self.atoms:
             if with_H or a.at_num != 1:
                 created_objects.append(a.draw(color=color, radius=radius, 
-                                              units=units, scale=scale))
+                                              units=units, scale=scale,
+                                              subsurf_level=subsurf_level))
 
         if join:
             # Deselect all objects in scene.
