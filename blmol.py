@@ -66,16 +66,12 @@ ATOMIC_NUMBERS = {
     'N': 7,
     'O': 8,
     'F': 9,
-    'Mg': 12,
     'MG': 12,
     'P': 15,
     'S': 16,
     'CL': 17,
-    'Cl': 17,
-    'Zn': 30,
     'ZN': 30,
     'BR': 35,
-    'Br': 35,
     'I': 53
     }
 
@@ -520,7 +516,7 @@ class Molecule:
             for line in pdbfile:
                 if line[0:6] == "HETATM":
                     idnum = int(line[6:11])
-                    atnum = ATOMIC_NUMBERS[line[76:78].strip()]
+                    atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
                     coords = np.array((float(line[30:38]), float(line[38:46]), 
                                        float(line[46:54])))
                     self.add_atom(Atom(atnum, coords, idnum))
