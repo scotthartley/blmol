@@ -505,8 +505,8 @@ class Molecule:
 
     def read_pdb(self, filename):
         """Loads a pdb file into a molecule object. Only accepts atoms
-        with Cartesian coords through the HETATM label and bonds through
-        the CONECT label.
+        with Cartesian coords through the ATOM/HETATM label and bonds
+        through the CONECT label.
 
         Args:
             filename (string): The target file.
@@ -514,7 +514,14 @@ class Molecule:
 
         with open(filename) as pdbfile:
             for line in pdbfile:
-                if line[0:6] == "HETATM":
+                if line[0:4] == "ATOM":
+                    idnum = int(line[6:11])
+                    atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
+                    coords = np.array((float(line[30:38]), float(line[38:46]), 
+                                       float(line[46:54])))
+                    self.add_atom(Atom(atnum, coords, idnum))
+
+                elif line[0:6] == "HETATM":
                     idnum = int(line[6:11])
                     atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
                     coords = np.array((float(line[30:38]), float(line[38:46]), 
