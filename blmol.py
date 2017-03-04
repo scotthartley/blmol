@@ -39,7 +39,9 @@ COLORS = {
     'black': (0, 0, 0),
     'dark_red': (0.55, 0, 0),
     'gray': (0.2, 0.2, 0.2),
+    'dark_gray': (0.1, 0.1, 0.1),
     'green': (0.133, 0.545, 0.133),
+    'dark_green': (0.1, 0.5, 0.1),
     'indigo': (0.294, 0, 0.509),
     'light_gray': (0.7,0.7,0.7),
     'orange': (1.0, 0.647, 0),
@@ -64,12 +66,12 @@ ATOMIC_NUMBERS = {
     'N': 7,
     'O': 8,
     'F': 9,
+    'MG': 12,
     'P': 15,
     'S': 16,
     'CL': 17,
-    'Cl': 17,
+    'ZN': 30,
     'BR': 35,
-    'Br': 35,
     'I': 53
     }
 
@@ -82,9 +84,11 @@ RADII = {
     7: 1.55,
     8: 1.52,
     9: 1.47,
+    12: 1.73, # From wikipedia
     15: 1.80,
     16: 1.80,
     17: 1.75,
+    30: 1.39, # From wikipedia
     35: 1.85,
     53: 1.98
     }
@@ -98,9 +102,11 @@ ELEMENT_COLORS = {
     7: 'royal_blue',
     8: 'red',
     9: 'green',
+    12: 'dark_green',
     15: 'orange',
     16: 'yellow',
     17: 'green',
+    30: 'dark_gray',
     35: 'dark_red',
     53: 'indigo'
     }
@@ -510,7 +516,7 @@ class Molecule:
             for line in pdbfile:
                 if line[0:6] == "HETATM":
                     idnum = int(line[6:11])
-                    atnum = ATOMIC_NUMBERS[line[76:78].strip()]
+                    atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
                     coords = np.array((float(line[30:38]), float(line[38:46]), 
                                        float(line[46:54])))
                     self.add_atom(Atom(atnum, coords, idnum))
