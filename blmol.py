@@ -161,7 +161,7 @@ class Atom:
         self.id_num = id_num
 
     def draw(self, color='by_element', radius=None, units='nm', 
-             scale=1.0, subsurf_level=2):
+             scale=1.0, subsurf_level=2, segments=32):
         """Draw the atom in Blender.
 
         Args:
@@ -175,6 +175,8 @@ class Atom:
                 when generating ball-and-stick models.
             subsurf_level (int, =2): Subsurface subdivisions that will
             	be applied.
+            segments (int, =32): Number of segments in each UV sphere
+                primitive
 
         Returns:
             The blender object.
@@ -186,12 +188,14 @@ class Atom:
         if not radius:
             bpy.ops.mesh.primitive_uv_sphere_add(
                 location=loc_corr, 
-                size=RADII[self.at_num]*UNIT_CONV[units]*scale
+                size=RADII[self.at_num]*UNIT_CONV[units]*scale,
+                segments=segments
                 )
         else:
             bpy.ops.mesh.primitive_uv_sphere_add(
                 location=loc_corr, 
-                size=radius*UNIT_CONV[units]*scale
+                size=radius*UNIT_CONV[units]*scale,
+                segments=segments
                 )
 
         bpy.ops.object.shade_smooth()
@@ -455,7 +459,8 @@ class Molecule:
 
 
     def draw_atoms(self, color='by_element', radius=None, units='nm', 
-                   scale=1.0, join=True, with_H=True, subsurf_level=2):
+                   scale=1.0, join=True, with_H=True, subsurf_level=2,
+                   segments=32):
         """Draw spheres for all atoms.
 
         Args: 
@@ -470,6 +475,8 @@ class Molecule:
             with_H (bool, =True): Include the hydrogens.
             subsurf_level (int, =2): Subsurface subdivisions that will
             	be applied to the atoms.
+            segments (int, =32): Number of segments in each UV sphere
+                primitive
 
         Returns:
             The atoms as a single Blender object, if join=True.
@@ -484,7 +491,8 @@ class Molecule:
             if with_H or a.at_num != 1:
                 created_objects.append(a.draw(color=color, radius=radius, 
                                               units=units, scale=scale,
-                                              subsurf_level=subsurf_level))
+                                              subsurf_level=subsurf_level,
+                                              segments=segments))
 
         if join:
             # Deselect all objects in scene.
