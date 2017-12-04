@@ -20,12 +20,13 @@
     https://github.com/patrickfuller/blender-chemicals
 """
 
-import numpy as np
+import numpy as np, time
 
 # Python outside of Blender doesn't play all that well with bpy, so need
 # to handle ImportError.
 try:
     import bpy
+    import bmesh
     bpy_avail = True
 except ImportError:
     bpy_avail = False
@@ -161,7 +162,7 @@ class Atom:
         self.id_num = id_num
 
     def draw(self, color='by_element', radius=None, units='nm', 
-             scale=1.0, subsurf_level=2, segments=32):
+             scale=1.0, subsurf_level=2, segments=16):
         """Draw the atom in Blender.
 
         Args:
@@ -175,7 +176,7 @@ class Atom:
                 when generating ball-and-stick models.
             subsurf_level (int, =2): Subsurface subdivisions that will
             	be applied.
-            segments (int, =32): Number of segments in each UV sphere
+            segments (int, =16): Number of segments in each UV sphere
                 primitive
 
         Returns:
@@ -185,26 +186,40 @@ class Atom:
         # The corrected location (i.e., scaled to units.)
         loc_corr = tuple(c*UNIT_CONV[units] for c in self.location)
 
+        # Work out the sphere radius in BU.
         if not radius:
-            bpy.ops.mesh.primitive_uv_sphere_add(
-                location=loc_corr, 
-                size=RADII[self.at_num]*UNIT_CONV[units]*scale,
-                segments=segments
-                )
+            rad_adj = RADII[self.at_num]*UNIT_CONV[units]*scale
         else:
-            bpy.ops.mesh.primitive_uv_sphere_add(
-                location=loc_corr, 
-                size=radius*UNIT_CONV[units]*scale,
-                segments=segments
-                )
+            rad_adj = radius*UNIT_CONV[units]*scale
 
-        bpy.ops.object.shade_smooth()
+        # Create sphere as bmesh.
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, 
+                                  u_segments=segments, 
+                                  v_segments=segments,
+                                  diameter=rad_adj)
+        
+        for f in bm.faces:
+            f.smooth = True
+        
+        # Convert to mesh.
+        me = bpy.data.meshes.new("Mesh")
+        bm.to_mesh(me)
+        bm.free()
 
+        # Assign mesh to object and place in space.
+        atom_sphere = bpy.data.objects.new("atom({})_{}".format(
+                            self.at_num, self.id_num), me)
+        bpy.context.scene.objects.link(atom_sphere)
+        
+        atom_sphere.location = loc_corr
+
+        # Assign subsurface modifier, if requested
         if subsurf_level != 0:
-        	bpy.ops.object.modifier_add(type='SUBSURF')
-        	bpy.context.object.modifiers['Subsurf'].levels = subsurf_level
-        	bpy.ops.object.modifier_apply(modifier='Subsurf')
+            atom_sphere.modifiers.new('Subsurf', 'SUBSURF')
+            atom_sphere.modifiers['Subsurf'].levels = subsurf_level
 
+        # Color atom and assign material
         if color == 'by_element':
             atom_color = ELEMENT_COLORS[self.at_num]
         else:
@@ -213,12 +228,9 @@ class Atom:
         if not atom_color in bpy.data.materials:
             _create_new_material(atom_color, COLORS[atom_color])
 
-        bpy.context.object.data.materials.append(
-            bpy.data.materials[atom_color])
-        bpy.context.object.name = "atom({})_{}".format(self.at_num, 
-                                                       self.id_num)
+        atom_sphere.data.materials.append(bpy.data.materials[atom_color])
 
-        return bpy.context.object
+        return atom_sphere
 
 
 class Bond:
@@ -460,7 +472,7 @@ class Molecule:
 
     def draw_atoms(self, color='by_element', radius=None, units='nm', 
                    scale=1.0, join=True, with_H=True, subsurf_level=2,
-                   segments=32):
+                   segments=16):
         """Draw spheres for all atoms.
 
         Args: 
@@ -475,7 +487,7 @@ class Molecule:
             with_H (bool, =True): Include the hydrogens.
             subsurf_level (int, =2): Subsurface subdivisions that will
             	be applied to the atoms.
-            segments (int, =32): Number of segments in each UV sphere
+            segments (int, =16): Number of segments in each UV sphere
                 primitive
 
         Returns:
@@ -483,11 +495,14 @@ class Molecule:
             Otherwise, None.
         """
 
+        # Store start time to time script.
+        start_time = time.time()
+
         # Holds links to all created objects, so that they can be
         # joined.
         created_objects = []
 
-        # Create progress monitor over mouse cursor.
+        # Initiate progress monitor over mouse cursor.
         bpy.context.window_manager.progress_begin(0, len(self.atoms))
         
         n = 0
@@ -499,24 +514,24 @@ class Molecule:
                                               segments=segments))
             n += 1
             bpy.context.window_manager.progress_update(n)
+
+        # End progress monitor.
         bpy.context.window_manager.progress_end()
 
         if join:
             # Deselect all objects in scene.
             for obj in bpy.context.selected_objects:
                 obj.select = False
-
             # Select all newly created objects.
             for obj in created_objects:
                 obj.select = True
-
+            bpy.context.scene.objects.active = created_objects[0]
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_atoms'
             
-            return bpy.context.object
+        print("{} seconds".format(time.time()-start_time))
+        return
 
-        else:
-            return None
 
     def read_pdb(self, filename):
         """Loads a pdb file into a molecule object. Only accepts atoms
