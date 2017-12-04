@@ -485,14 +485,21 @@ class Molecule:
 
         # Holds links to all created objects, so that they can be
         # joined.
-        created_objects = [] 
+        created_objects = []
 
+        # Create progress monitor over mouse cursor.
+        bpy.context.window_manager.progress_begin(0, len(self.atoms))
+        
+        n = 0
         for a in self.atoms:
             if with_H or a.at_num != 1:
                 created_objects.append(a.draw(color=color, radius=radius, 
                                               units=units, scale=scale,
                                               subsurf_level=subsurf_level,
                                               segments=segments))
+            n += 1
+            bpy.context.window_manager.progress_update(n)
+        bpy.context.window_manager.progress_end()
 
         if join:
             # Deselect all objects in scene.
