@@ -52,65 +52,81 @@ COLORS = {
     'royal_blue': (0.255, 0.412, 0.882, 1.0),
     'white': (1.0, 1.0, 1.0, 1.0),
     'yellow': (1.0, 1.0, 0, 1.0),
+    'violet': (0.561, 0, 1.0, 1.0),
     'blue_cb': (0, 0.168, 0.445, 1.0),
     'bluish_green_cb': (0, 0.620, 0.451, 1.0),
     'orange_cb': (0.791, 0.347, 0, 1.0),
     'reddish_purple_cb': (0.800, 0.475, 0.655, 1.0),
     'sky_blue_cb': (0.337, 0.706, 0.914, 1.0),
     'vermillion_cb': (0.665, 0.112, 0, 1.0),
-    'yellow_cb': (0.871, 0.776, 0.054, 1.0)
+    'yellow_cb': (0.871, 0.776, 0.054, 1.0),
     }
 
 ATOMIC_NUMBERS = {
     'H': 1,
+    'LI': 3,
     'B': 5,
     'C': 6,
     'N': 7,
     'O': 8,
     'F': 9,
+    'NA': 11,
     'MG': 12,
     'P': 15,
     'S': 16,
     'CL': 17,
+    'K': 19,
     'ZN': 30,
     'BR': 35,
-    'I': 53
+    'RB': 37,
+    'I': 53,
+    'CS': 55
     }
 
 # Dictionary of Van der Waals radii, by atomic number, from Wolfram
 # Alpha.
 RADII = {
     1: 1.20,
+    3: 1.82,
     5: 1.92,  # From wikipedia
     6: 1.70,
     7: 1.55,
     8: 1.52,
     9: 1.47,
+    11: 2.27,
     12: 1.73,  # From wikipedia
     15: 1.80,
     16: 1.80,
     17: 1.75,
+    19: 2.75,
     30: 1.39,  # From wikipedia
     35: 1.85,
-    53: 1.98
+    37: 3.03,
+    53: 1.98,
+    55: 3.43
     }
 
 # Dictionaries of colors for drawing elements, by atomic number. Used by
 # several functions when the `color = 'by_element'` option is passed.
 ELEMENT_COLORS = {
     1: 'white',
+    3: 'violet',
     5: 'orange',
     6: 'gray',
     7: 'royal_blue',
     8: 'red',
     9: 'green',
+    11: 'violet',
     12: 'dark_green',
     15: 'orange',
     16: 'yellow',
     17: 'green',
+    19: 'violet',
     30: 'dark_gray',
     35: 'dark_red',
-    53: 'indigo'
+    37: 'violet',
+    53: 'indigo',
+    55: 'violet'
     }
 
 # Conversion factors for 1 BU. Default is typically 1 nm. Assumes
