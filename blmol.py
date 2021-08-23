@@ -353,6 +353,11 @@ class Bond:
         bond_axis = bond_vector/length
         cyl_axis = np.array((0, 0, 1))
         rot_axis = np.cross(bond_axis, cyl_axis)
+        # Fix will not draw bond if perfectly aligned along z axis
+        # because rot_axis becomes (0, 0, 0).
+        if ((bond_axis == np.array((0, 0, 1))).all()
+                or (bond_axis == np.array((0, 0, -1))).all()):
+            rot_axis = np.array((1, 0, 0))
         angle = -np.arccos(np.dot(cyl_axis, bond_axis))
 
         start_center = (self.atom1.location + center_loc)/2
