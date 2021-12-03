@@ -208,7 +208,7 @@ class Atom:
         bmesh.ops.create_uvsphere(bm,
                                   u_segments=segments,
                                   v_segments=segments,
-                                  diameter=rad_adj)
+                                  radius=rad_adj)
 
         for f in bm.faces:
             f.smooth = True
