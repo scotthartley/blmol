@@ -136,36 +136,6 @@ UNIT_CONV = {
     'A': 1.0
     }
 
-# Checks if a matrix is a valid rotation matrix.
-def isRotationMatrix(R) :
-    Rt = np.transpose(R)
-    shouldBeIdentity = np.dot(Rt, R)
-    I = np.identity(3, dtype = R.dtype)
-    n = np.linalg.norm(I - shouldBeIdentity)
-    return n < 1e-6
-
-# Calculates rotation matrix to euler angles
-# The result is the same as MATLAB except the order
-# of the euler angles ( x and z are swapped ).
-def rotationMatrixToEulerAngles(R) :
-
-    assert(isRotationMatrix(R))
-
-    sy = math.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
-
-    singular = sy < 1e-6
-
-    if  not singular :
-        x = math.atan2(R[2,1] , R[2,2])
-        y = math.atan2(-R[2,0], sy)
-        z = math.atan2(R[1,0], R[0,0])
-    else :
-        x = math.atan2(-R[1,2], R[1,1])
-        y = math.atan2(-R[2,0], sy)
-        z = 0
-
-    return (x, y, z)
-
 def _create_new_material(name, color):
     """Create a new material.
 
@@ -186,14 +156,23 @@ def _create_new_material(name, color):
     return mat
 
 class TemplateCollection:
+
+    """A collection for templates in order to copy them when needed. All the
+    templates are stored in self.coll with structure {at_num:Blender object}.
+
+    Get copy with self.get_copy(at_num).
+    Delete collection with self.delete().
+    """
+
     def __init__(self):
         self.coll = None
     def get_copy(self, at_num):
+        """Copies and returns the template corresponding to at_num"""
         copy = self.coll[at_num].copy()
         copy.data = copy.data.copy()
         return copy
     def delete(self):
-        """Delets all objects stored in self.coll"""
+        """Deletes all objects stored in self.coll"""
         # Deselect all
         bpy.ops.object.select_all(action='DESELECT')
         # Select all template objects
@@ -203,6 +182,25 @@ class TemplateCollection:
         self.coll = None
 
 class AtomTemplateCollection(TemplateCollection):
+
+    __doc__ = TemplateCollection.__doc__ + """
+    color (str, ='by_element'): If 'by_element', uses colors in
+        ELEMENT_COLORS. Otherwise, can specify color for whole
+        model. Must be defined in COLORS.
+    radius (float, =None): If specified, gives radius of all
+        atoms.
+    units (str, ='nm'): Units for 1 BU. Can also be A.
+    scale (float, =1.0):
+    subsurf_level (int, =2): Subsurface subdivisions that will
+        be applied to the atoms.
+    segments (int, =16): Number of segments in each UV sphere
+        primitive
+    template_collection (AtomTemplateCollection, =None):
+        If specified, the spheres will be copies from the given
+        template collection and all the other arguments will be
+        ignored.
+    """
+
     def __init__(self, color='by_element', radius=None, units='nm',
                  scale=1.0, subsurf_level=2, segments=16):
         super(AtomTemplateCollection, self).__init__()
@@ -264,6 +262,19 @@ class AtomTemplateCollection(TemplateCollection):
             self.coll[at_num] = atom_sphere
 
 class BondTemplateCollection(TemplateCollection):
+
+    __doc__ = TemplateCollection.__doc__ + """
+    radius (float, =0.2): Radius of bonds in angstroms.
+    color (string, ='by_element'): Color of the bonds. If
+        'by_element', each gets element coloring.
+    units (string, ='nm'): 1 BU = 1 nm, by default. Can change
+        to angstroms ('A').
+    vertices (int, =64): Number of vertices in each bond
+        cylinder.
+    edge_split (bool, =False): Whether to apply the edge split
+        modifier to each bond.
+    """
+
     def __init__(self, radius=0.2, color='by_element', units='nm',
                  vertices=64, edge_split=False):
         super(BondTemplateCollection, self).__init__()
@@ -393,14 +404,17 @@ class Bond:
 
         return bond_copy
 
-    def draw(self, template_coll):
+    def draw(self, template_coll, join_halves=False):
         """Draw the bond as two half bonds (to allow coloring).
 
         Args:
             template_coll (BondTemplateCollection)
+            join_halves (bool, =False): Join both halves to one object. Setting
+                it to True will slow down the code as bpy.ops methods are used.
 
         Returns:
-            List of the two unjoined halves (Blender objects).
+            List of the two unjoined halves (Blender objects) when
+            join_halves=False. Otherwise one-tuple with joined halves.
         """
 
         created_objects = []
@@ -427,7 +441,32 @@ class Bond:
         created_objects.append(Bond._draw_half(end_center, length/2, angle,
                                rot_axis, self.atom2.at_num, template_coll))
 
-        return created_objects
+        if join_halves:
+            # Deselect all objects in scene.
+            for obj in bpy.context.selected_objects:
+                obj.select_set(state=False)
+            # Select all newly created objects.
+            for obj in created_objects:
+                bpy.context.collection.objects.link(obj)
+                obj.select_set(state=True)
+
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.join()
+            obj.name = "bond_{}({})_{}({})".format(
+                self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
+                self.atom2.at_num)
+
+            # An iterable is expected thus return one-tuple
+            return (bpy.context.object,)
+        else:
+            created_objects[0].name = "bond_{}({})_{}({})".format(
+                self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
+                self.atom2.at_num)
+            created_objects[1].name = "bond_{}({})_{}({})".format(
+                self.atom2.id_num, self.atom2.at_num, self.atom1.id_num,
+                self.atom1.at_num)
+
+            return created_objects
 
 
 class Molecule:
@@ -477,8 +516,8 @@ class Molecule:
         return None
 
     def draw_bonds(self, caps=True, radius=0.2, color='by_element',
-                   units='nm', join=True, with_H=True, segments=16,
-                   subsurf_level=1, vertices=64, edge_split=False,
+                   units='nm', join=True, join_halves=False, with_H=True,
+                   segments=16, subsurf_level=1, vertices=64, edge_split=False,
                    bond_template_coll=None, atom_template_coll=None):
         """Draws the molecule's bonds.
 
@@ -493,6 +532,9 @@ class Molecule:
                 to angstroms ('A').
             join (bool, =True): If true, all bonds are joined together
                 into a single Bl object.
+            join_halves (bool, =False): Join both halves to one object. Setting
+                it to True will slow down the code as bpy.ops methods are used.
+                Has no effect when join=True.
             with_H (bool, =True): Include H's.
             segments (int, =16)
             subsurf_level (int, =1): Subsurface subdivisions that will
@@ -515,6 +557,9 @@ class Molecule:
             Otherwise, None.
         """
 
+        # Store start time to time script.
+        start_time = time.time()
+
         collection = bpy.context.collection
 
         # Create AtomTemplateCollection if necessary
@@ -530,33 +575,36 @@ class Molecule:
                 edge_split=edge_split)
             newly_created_template_colls.append(bond_template_coll)
 
+        join_halves = join_halves and not join
+
         created_objects = []
 
-        totbondcount = len(self.bonds)
-        for i,b in enumerate(self.bonds):
-            print("%s/%s"%(i,totbondcount))
+        for b in self.bonds:
             if with_H or (b.atom1.at_num != 1 and b.atom2.at_num != 1):
-                new_halves = b.draw(bond_template_coll)
+                new_halves = b.draw(bond_template_coll, join_halves)
+
+                # Add new objects to internal list
                 created_objects += new_halves
-                for new_half in new_halves:
-                    collection.objects.link(new_half)
+
+                # Link new objects with collection
+                if not join_halves:
+                    for new_half in new_halves:
+                        collection.objects.link(new_half)
 
         if caps:
-            totatomcount = len(self.atoms)
-            for j,a in enumerate(self.atoms):
-                print("%s/%s"%(j,totatomcount))
+            for a in self.atoms:
                 if with_H or a.at_num != 1:
                     new_atom = a.draw(atom_template_coll)
+
+                    # Add new objects to internal list
                     created_objects.append(new_atom)
+
+                    # Link new objects with collection
                     collection.objects.link(new_atom)
 
         # Clean up in case a new template collection was created
         for new_template_coll in newly_created_template_colls:
             new_template_coll.delete()
-
-        # Update the scene
-        dg = bpy.context.evaluated_depsgraph_get()
-        dg.update()
 
         if join:
             # # Deselect anything currently selected.
@@ -577,9 +625,11 @@ class Molecule:
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_bonds'
 
+            print("{} seconds".format(time.time()-start_time))
             return bpy.context.object
 
         else:
+            print("{} seconds".format(time.time()-start_time))
             return None
 
     def draw_atoms(self, color='by_element', radius=None, units='nm',
@@ -636,18 +686,19 @@ class Molecule:
         for a in self.atoms:
             if with_H or a.at_num != 1:
                 atom_sphere = a.draw(template_collection)
-                collection.objects.link(atom_sphere)
+
+                # Add new objects to internal list
                 created_objects.append(atom_sphere)
+
+                # Link new objects with collection
+                collection.objects.link(atom_sphere)
+
             n += 1
             bpy.context.window_manager.progress_update(n)
 
         # Clean up in case a new template collection was created
         if created_new_template_collection:
             template_collection.delete()
-
-        # Update the scene
-        dg = bpy.context.evaluated_depsgraph_get()
-        dg.update()
 
         # End progress monitor.
         bpy.context.window_manager.progress_end()
