@@ -166,10 +166,15 @@ class TemplateCollection:
 
     def __init__(self):
         self.coll = None
-    def get_copy(self, at_num):
-        """Copies and returns the template corresponding to at_num"""
+    def get_copy(self, at_num, copy_data=True):
+        """Copies and returns the template corresponding to at_num
+
+        Args:
+            copy_data (bool, =True): Whether the object's data, i. e. its mesh
+                is copied or the identical mesh instance is used."""
         copy = self.coll[at_num].copy()
-        copy.data = copy.data.copy()
+        if copy_data:
+            copy.data = copy.data.copy()
         return copy
     def delete(self):
         """Deletes all objects stored in self.coll"""
@@ -177,8 +182,9 @@ class TemplateCollection:
         bpy.ops.object.select_all(action='DESELECT')
         # Select all template objects
         for obj in self.coll.values():
-            obj.select_set(True)
-        bpy.ops.object.delete()
+            bpy.data.meshes.remove(obj.data)
+        #     obj.select_set(True)
+        # bpy.ops.object.delete()
         self.coll = None
 
 class AtomTemplateCollection(TemplateCollection):
@@ -333,7 +339,7 @@ class Atom:
         self.location = location  # np.array
         self.id_num = id_num
 
-    def draw(self, template_collection):
+    def draw(self, template_collection, copy_data=True):
         """Draw the atom in Blender.
 
         Args:
@@ -347,7 +353,7 @@ class Atom:
         scale_factor = UNIT_CONV[template_collection.units]
         loc_corr = tuple(c*scale_factor for c in self.location)
 
-        atom_sphere_copy = template_collection.get_copy(self.at_num)
+        atom_sphere_copy = template_collection.get_copy(self.at_num, copy_data)
 
         atom_sphere_copy.location = loc_corr
         atom_sphere_copy.name = "atom({})_{}".format(self.at_num, self.id_num)
@@ -369,7 +375,7 @@ class Bond:
 
     @staticmethod
     def _draw_half(location, length, rot_angle, rot_axis, element,
-                   template_collection):
+                   template_collection, copy_data=True):
         """Draw half of a bond (static method).
 
         Draws half of a bond, given the location and length. Bonds are
@@ -392,7 +398,7 @@ class Bond:
         loc_corr = tuple(c*scale_factor for c in location)
         len_corr = length * scale_factor
 
-        bond_copy = template_collection.get_copy(element)
+        bond_copy = template_collection.get_copy(element, copy_data)
 
         bond_copy.location = loc_corr
 
@@ -404,7 +410,7 @@ class Bond:
 
         return bond_copy
 
-    def draw(self, template_coll, join_halves=False):
+    def draw(self, template_coll, join_halves=False, copy_data=True):
         """Draw the bond as two half bonds (to allow coloring).
 
         Args:
@@ -433,13 +439,15 @@ class Bond:
             rot_axis = np.array((1, 0, 0))
         angle = -np.arccos(np.dot(cyl_axis, bond_axis))
 
-        start_center = (self.atom1.location + center_loc)/2
-        created_objects.append(Bond._draw_half(start_center, length/2, angle,
-                               rot_axis, self.atom1.at_num, template_coll))
-
-        end_center = (self.atom2.location + center_loc)/2
-        created_objects.append(Bond._draw_half(end_center, length/2, angle,
-                               rot_axis, self.atom2.at_num, template_coll))
+        # Create both halves
+        for a1, a2 in ((self.atom1, self.atom2), (self.atom2, self.atom1)):
+            center_of_half = (a1.location + center_loc)/2
+            created_objects.append(Bond._draw_half(center_of_half, length/2,
+                                   angle, rot_axis, a1.at_num, template_coll,
+                                   copy_data))
+            if not join_halves:
+                created_objects[-1].name = "bond_{}({})_{}({})".format(
+                    a1.id_num, a1.at_num, a2.id_num, a2.at_num)
 
         if join_halves:
             # Deselect all objects in scene.
@@ -450,23 +458,16 @@ class Bond:
                 bpy.context.collection.objects.link(obj)
                 obj.select_set(state=True)
 
+            obj = created_objects[0]
             bpy.context.view_layer.objects.active = obj
             bpy.ops.object.join()
-            obj.name = "bond_{}({})_{}({})".format(
-                self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
-                self.atom2.at_num)
+            obj.name = "bond_{}({})_{}({})".format(self.atom1.id_num,
+                self.atom1.at_num, self.atom2.id_num, self.atom2.at_num)
 
             # An iterable is expected thus return one-tuple
-            return (bpy.context.object,)
-        else:
-            created_objects[0].name = "bond_{}({})_{}({})".format(
-                self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
-                self.atom2.at_num)
-            created_objects[1].name = "bond_{}({})_{}({})".format(
-                self.atom2.id_num, self.atom2.at_num, self.atom1.id_num,
-                self.atom1.at_num)
+            return (obj,)
 
-            return created_objects
+        return created_objects
 
 
 class Molecule:
@@ -576,12 +577,13 @@ class Molecule:
             newly_created_template_colls.append(bond_template_coll)
 
         join_halves = join_halves and not join
+        copy_data = not join
 
         created_objects = []
 
         for b in self.bonds:
             if with_H or (b.atom1.at_num != 1 and b.atom2.at_num != 1):
-                new_halves = b.draw(bond_template_coll, join_halves)
+                new_halves = b.draw(bond_template_coll, join_halves, copy_data)
 
                 # Add new objects to internal list
                 created_objects += new_halves
@@ -594,17 +596,13 @@ class Molecule:
         if caps:
             for a in self.atoms:
                 if with_H or a.at_num != 1:
-                    new_atom = a.draw(atom_template_coll)
+                    new_atom = a.draw(atom_template_coll, copy_data)
 
                     # Add new objects to internal list
                     created_objects.append(new_atom)
 
                     # Link new objects with collection
                     collection.objects.link(new_atom)
-
-        # Clean up in case a new template collection was created
-        for new_template_coll in newly_created_template_colls:
-            new_template_coll.delete()
 
         if join:
             # # Deselect anything currently selected.
@@ -622,15 +620,25 @@ class Molecule:
                 obj.select_set(state=True)
 
             bpy.context.view_layer.objects.active = created_objects[0]
+
+            # Copy data of active object so the templates are unaffected of join
+            bpy.context.object.data = bpy.context.object.data.copy()
+
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_bonds'
+            bpy.context.object.data.name = self.name + '_bonds'
 
-            print("{} seconds".format(time.time()-start_time))
-            return bpy.context.object
+            ret = bpy.context.object
 
         else:
-            print("{} seconds".format(time.time()-start_time))
-            return None
+            ret = None
+
+        # Clean up in case a new template collection was created
+        for new_template_coll in newly_created_template_colls:
+            new_template_coll.delete()
+
+        print("{} seconds".format(time.time()-start_time))
+        return ret
 
     def draw_atoms(self, color='by_element', radius=None, units='nm',
                    scale=1.0, join=True, with_H=True, subsurf_level=2,
@@ -675,6 +683,8 @@ class Molecule:
         else:
             created_new_template_collection = False
 
+        copy_data = not join
+
         # Holds links to all created objects, so that they can be
         # joined.
         created_objects = []
@@ -685,7 +695,7 @@ class Molecule:
         n = 0
         for a in self.atoms:
             if with_H or a.at_num != 1:
-                atom_sphere = a.draw(template_collection)
+                atom_sphere = a.draw(template_collection, copy_data)
 
                 # Add new objects to internal list
                 created_objects.append(atom_sphere)
@@ -695,10 +705,6 @@ class Molecule:
 
             n += 1
             bpy.context.window_manager.progress_update(n)
-
-        # Clean up in case a new template collection was created
-        if created_new_template_collection:
-            template_collection.delete()
 
         # End progress monitor.
         bpy.context.window_manager.progress_end()
@@ -712,11 +718,25 @@ class Molecule:
                 obj.select_set(state=True)
 
             bpy.context.view_layer.objects.active = created_objects[0]
+
+            # Copy data of active object so the templates are unaffected of join
+            bpy.context.object.data = bpy.context.object.data.copy()
+
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_atoms'
+            bpy.context.object.data.name = self.name + '_atoms'
+
+            ret = bpy.context.object
+
+        else:
+            ret = None
+
+        # Clean up in case a new template collection was created
+        if created_new_template_collection:
+            template_collection.delete()
 
         print("{} seconds".format(time.time()-start_time))
-        return
+        return ret
 
     def read_pdb(self, filename):
         """Loads a pdb file into a molecule object. Only accepts atoms
