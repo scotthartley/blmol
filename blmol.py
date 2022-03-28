@@ -21,7 +21,7 @@
 """
 
 import numpy as np
-import time
+import time, mathutils
 
 # Python outside of Blender doesn't play all that well with bpy, so need
 # to handle ImportError.
@@ -136,7 +136,6 @@ UNIT_CONV = {
     'A': 1.0
     }
 
-
 def _create_new_material(name, color):
     """Create a new material.
 
@@ -156,8 +155,176 @@ def _create_new_material(name, color):
 
     return mat
 
+class TemplateCollection:
+
+    """A collection for templates in order to copy them when needed. All the
+    templates are stored in self.coll with structure {at_num:Blender object}.
+
+    Get copy with self.get_copy(at_num).
+    Delete collection with self.delete().
+    """
+
+    def __init__(self):
+        self.coll = None
+    def get_copy(self, at_num, copy_data=True):
+        """Copies and returns the template corresponding to at_num
+
+        Args:
+            copy_data (bool, =True): Whether the object's data, i. e. its mesh
+                is copied or the identical mesh instance is used."""
+        copy = self.coll[at_num].copy()
+        if copy_data:
+            copy.data = copy.data.copy()
+        return copy
+    def delete(self):
+        """Deletes all objects stored in self.coll"""
+        # Deselect all
+        bpy.ops.object.select_all(action='DESELECT')
+        # Select all template objects
+        for obj in self.coll.values():
+            bpy.data.meshes.remove(obj.data)
+        #     obj.select_set(True)
+        # bpy.ops.object.delete()
+        self.coll = None
+
+class AtomTemplateCollection(TemplateCollection):
+
+    __doc__ = TemplateCollection.__doc__ + """
+    color (str, ='by_element'): If 'by_element', uses colors in
+        ELEMENT_COLORS. Otherwise, can specify color for whole
+        model. Must be defined in COLORS.
+    radius (float, =None): If specified, gives radius of all
+        atoms.
+    units (str, ='nm'): Units for 1 BU. Can also be A.
+    scale (float, =1.0):
+    subsurf_level (int, =2): Subsurface subdivisions that will
+        be applied to the atoms.
+    segments (int, =16): Number of segments in each UV sphere
+        primitive
+    template_collection (AtomTemplateCollection, =None):
+        If specified, the spheres will be copies from the given
+        template collection and all the other arguments will be
+        ignored.
+    """
+
+    def __init__(self, color='by_element', radius=None, units='nm',
+                 scale=1.0, subsurf_level=2, segments=16):
+        super(AtomTemplateCollection, self).__init__()
+        self.color = color
+        self.radius = radius
+        self.units = units
+        self.scale = scale
+        self.subsurf_level = subsurf_level
+        self.segments = segments
+
+        self.create_template_collection()
+    def create_template_collection(self):
+        scale_factor = UNIT_CONV[self.units]*self.scale
+        self.coll = {}
+        for at_num in ATOMIC_NUMBERS.values():
+            # Work out the sphere radius in BU.
+            if not self.radius:
+                rad_adj = RADII[at_num]*scale_factor
+            else:
+                rad_adj = self.radius*scale_factor
+
+            # Create sphere as bmesh.
+            bm = bmesh.new()
+            bmesh.ops.create_uvsphere(bm,
+                                      u_segments=self.segments,
+                                      v_segments=self.segments,
+                                      radius=rad_adj)
+
+            for f in bm.faces:
+                f.smooth = True
+
+            # Convert to mesh.
+            me = bpy.data.meshes.new("Mesh")
+            bm.to_mesh(me)
+            bm.free()
+
+            # Assign mesh to object and place in space.
+            atom_sphere = bpy.data.objects.new("template({})_atom({})".format(
+                                id(self), at_num), me)
+            bpy.context.collection.objects.link(atom_sphere)
+
+            # Assign subsurface modifier, if requested
+            if self.subsurf_level != 0:
+                atom_sphere.modifiers.new('Subsurf', 'SUBSURF')
+                atom_sphere.modifiers['Subsurf'].levels = self.subsurf_level
+
+            # Color atom and assign material
+            if self.color == 'by_element':
+                atom_color = ELEMENT_COLORS[at_num]
+            else:
+                atom_color = self.color
+
+            if atom_color not in bpy.data.materials:
+                _create_new_material(atom_color, COLORS[atom_color])
+
+            atom_sphere.data.materials.append(bpy.data.materials[atom_color])
+
+            # Add new object to collection
+            self.coll[at_num] = atom_sphere
+
+class BondTemplateCollection(TemplateCollection):
+
+    __doc__ = TemplateCollection.__doc__ + """
+    radius (float, =0.2): Radius of bonds in angstroms.
+    color (string, ='by_element'): Color of the bonds. If
+        'by_element', each gets element coloring.
+    units (string, ='nm'): 1 BU = 1 nm, by default. Can change
+        to angstroms ('A').
+    vertices (int, =64): Number of vertices in each bond
+        cylinder.
+    edge_split (bool, =False): Whether to apply the edge split
+        modifier to each bond.
+    """
+
+    def __init__(self, radius=0.2, color='by_element', units='nm',
+                 vertices=64, edge_split=False):
+        super(BondTemplateCollection, self).__init__()
+        self.radius = radius
+        self.color = color
+        self.units = units
+        self.vertices = vertices
+        self.edge_split = edge_split
+
+        self.create_template_collection()
+    def create_template_collection(self):
+        self.coll = {}
+        for at_num in ATOMIC_NUMBERS.values():
+            radius_corr = self.radius * UNIT_CONV[self.units]
+
+            bpy.ops.mesh.primitive_cylinder_add(vertices=self.vertices,
+                                                radius=radius_corr,
+                                                depth=1,
+                                                end_fill_type='NOTHING')
+
+            bpy.ops.object.shade_smooth()
+
+            if self.edge_split:
+                bpy.ops.object.modifier_add(type='EDGE_SPLIT')
+                bpy.ops.object.modifier_apply(modifier='EdgeSplit')
+
+            if self.color == 'by_element':
+                bond_color = ELEMENT_COLORS[at_num]
+            else:
+                bond_color = self.color
+
+            if bond_color not in bpy.data.materials:
+                _create_new_material(bond_color, COLORS[bond_color])
+
+            bpy.context.object.data.materials.append(
+                bpy.data.materials[bond_color])
+
+            bond_cylinder = bpy.context.active_object
+            bond_cylinder.name = "template({})_bond({})".format(
+                                id(self), at_num)
+            self.coll[at_num] = bond_cylinder
 
 class Atom:
+
     """A single atom.
 
     Attributes:
@@ -172,76 +339,26 @@ class Atom:
         self.location = location  # np.array
         self.id_num = id_num
 
-    def draw(self, color='by_element', radius=None, units='nm',
-             scale=1.0, subsurf_level=2, segments=16):
+    def draw(self, template_collection, copy_data=True):
         """Draw the atom in Blender.
 
         Args:
-            color (string, ='by_element'): If None, coloring is done by
-                element. Otherwise specifies the color.
-            radius (string, =None): If None, draws at the van der Waals
-                radius. Otherwise specifies the radius in angstroms.
-            units (sting, ='nm'): 1 BU = 1 nm by default. Can also be
-                set to angstroms.
-            scale (float, =1.0): Scaling factor for the atom. Useful
-                when generating ball-and-stick models.
-            subsurf_level (int, =2): Subsurface subdivisions that will
-                be applied.
-            segments (int, =16): Number of segments in each UV sphere
-                primitive
+            template_collection (AtomTemplateCollection)
 
         Returns:
             The blender object.
         """
 
         # The corrected location (i.e., scaled to units.)
-        loc_corr = tuple(c*UNIT_CONV[units] for c in self.location)
+        scale_factor = UNIT_CONV[template_collection.units]
+        loc_corr = tuple(c*scale_factor for c in self.location)
 
-        # Work out the sphere radius in BU.
-        if not radius:
-            rad_adj = RADII[self.at_num]*UNIT_CONV[units]*scale
-        else:
-            rad_adj = radius*UNIT_CONV[units]*scale
+        atom_sphere_copy = template_collection.get_copy(self.at_num, copy_data)
 
-        # Create sphere as bmesh.
-        bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm,
-                                  u_segments=segments,
-                                  v_segments=segments,
-                                  radius=rad_adj)
+        atom_sphere_copy.location = loc_corr
+        atom_sphere_copy.name = "atom({})_{}".format(self.at_num, self.id_num)
 
-        for f in bm.faces:
-            f.smooth = True
-
-        # Convert to mesh.
-        me = bpy.data.meshes.new("Mesh")
-        bm.to_mesh(me)
-        bm.free()
-
-        # Assign mesh to object and place in space.
-        atom_sphere = bpy.data.objects.new("atom({})_{}".format(
-                            self.at_num, self.id_num), me)
-        bpy.context.collection.objects.link(atom_sphere)
-
-        atom_sphere.location = loc_corr
-
-        # Assign subsurface modifier, if requested
-        if subsurf_level != 0:
-            atom_sphere.modifiers.new('Subsurf', 'SUBSURF')
-            atom_sphere.modifiers['Subsurf'].levels = subsurf_level
-
-        # Color atom and assign material
-        if color == 'by_element':
-            atom_color = ELEMENT_COLORS[self.at_num]
-        else:
-            atom_color = color
-
-        if atom_color not in bpy.data.materials:
-            _create_new_material(atom_color, COLORS[atom_color])
-
-        atom_sphere.data.materials.append(bpy.data.materials[atom_color])
-
-        return atom_sphere
+        return atom_sphere_copy
 
 
 class Bond:
@@ -258,8 +375,7 @@ class Bond:
 
     @staticmethod
     def _draw_half(location, length, rot_angle, rot_axis, element,
-                   radius=0.2, color='by_element', units='nm',
-                   vertices=64, edge_split=False):
+                   template_collection, copy_data=True):
         """Draw half of a bond (static method).
 
         Draws half of a bond, given the location and length. Bonds are
@@ -272,78 +388,39 @@ class Bond:
             rot_axis (np.array): Axis of rotation.
             element (int): atomic number of element of the bond (for
                 coloring).
-            radius (float, =0.2): radius of the bond.
-            color (string, ='by_element'): color of the bond. If
-                'by_element', uses element coloring.
-            units (string, ='nm'): 1 BU = 1 nm, by default. Can change
-                to angstroms ('A').
-            vertices (int, =64): Number of vertices in each bond
-                cylinder.
-            edge_split (bool, =False): Whether to apply the edge split
-                modifier to each bond.
+            template_collection (BondTemplateCollection)
 
         Returns:
             The new bond (Blender object).
         """
 
-        loc_corr = tuple(c*UNIT_CONV[units] for c in location)
-        len_corr = length * UNIT_CONV[units]
-        radius_corr = radius * UNIT_CONV[units]
+        scale_factor = UNIT_CONV[template_collection.units]
+        loc_corr = tuple(c*scale_factor for c in location)
+        len_corr = length * scale_factor
 
-        bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,
-                                            radius=radius_corr,
-                                            depth=len_corr, location=loc_corr,
-                                            end_fill_type='NOTHING')
+        bond_copy = template_collection.get_copy(element, copy_data)
 
-        # Generate an orientation matrix from rot_axis to handle changes in
-        # Blender's API introduced in v 2.8.
-        rot_matrix_z = rot_axis/np.linalg.norm(rot_axis)
-        rot_matrix_y = np.cross(rot_matrix_z, [0, 0, 1])
-        rot_matrix_x = np.cross(rot_matrix_y, rot_matrix_z)
-        rot_matrix_y = rot_matrix_y/np.linalg.norm(rot_matrix_y)
-        rot_matrix_x = rot_matrix_x/np.linalg.norm(rot_matrix_x)
-        rot_matrix = [rot_matrix_x, rot_matrix_y, rot_matrix_z]
+        bond_copy.location = loc_corr
 
-        bpy.ops.transform.rotate(value=rot_angle, orient_axis='Z',
-                                 orient_matrix=rot_matrix,
-                                 constraint_axis=(False, False, True))
+        # Resize bond
+        bond_copy.scale = (1, 1, len_corr)
 
-        bpy.ops.object.shade_smooth()
+        mat_rot = mathutils.Matrix.Rotation(rot_angle, 3, rot_axis)
+        bond_copy.rotation_euler = tuple(mat_rot.to_euler())
 
-        if edge_split:
-            bpy.ops.object.modifier_add(type='EDGE_SPLIT')
-            bpy.ops.object.modifier_apply(modifier='EdgeSplit')
+        return bond_copy
 
-        if color == 'by_element':
-            bond_color = ELEMENT_COLORS[element]
-        else:
-            bond_color = color
-
-        if bond_color not in bpy.data.materials:
-            _create_new_material(bond_color, COLORS[bond_color])
-
-        bpy.context.object.data.materials.append(
-            bpy.data.materials[bond_color])
-
-        return bpy.context.object
-
-    def draw(self, radius=0.2, color='by_element', units='nm',
-             vertices=64, edge_split=False):
+    def draw(self, template_coll, join_halves=False, copy_data=True):
         """Draw the bond as two half bonds (to allow coloring).
 
         Args:
-            radius (float, =0.2): Radius of cylinder in angstroms.
-            color (string, ='by_element'): Color of the bond. If
-                'by_element', each half gets element coloring.
-            units (string, ='nm'): 1 BU = 1 nm, by default. Can change
-                to angstroms ('A').
-            vertices (int, =64): Number of vertices in each bond
-                cylinder.
-            edge_split (bool, =False): Whether to apply the edge split
-                modifier to each bond.
+            template_coll (BondTemplateCollection)
+            join_halves (bool, =False): Join both halves to one object. Setting
+                it to True will slow down the code as bpy.ops methods are used.
 
         Returns:
-            The bond (Blender object), with both halves joined.
+            List of the two unjoined halves (Blender objects) when
+            join_halves=False. Otherwise one-tuple with joined halves.
         """
 
         created_objects = []
@@ -362,29 +439,35 @@ class Bond:
             rot_axis = np.array((1, 0, 0))
         angle = -np.arccos(np.dot(cyl_axis, bond_axis))
 
-        start_center = (self.atom1.location + center_loc)/2
-        created_objects.append(Bond._draw_half(start_center, length/2, angle,
-                               rot_axis, self.atom1.at_num, radius, color,
-                               units, vertices, edge_split))
+        # Create both halves
+        for a1, a2 in ((self.atom1, self.atom2), (self.atom2, self.atom1)):
+            center_of_half = (a1.location + center_loc)/2
+            created_objects.append(Bond._draw_half(center_of_half, length/2,
+                                   angle, rot_axis, a1.at_num, template_coll,
+                                   copy_data))
+            if not join_halves:
+                created_objects[-1].name = "bond_{}({})_{}({})".format(
+                    a1.id_num, a1.at_num, a2.id_num, a2.at_num)
 
-        end_center = (self.atom2.location + center_loc)/2
-        created_objects.append(Bond._draw_half(end_center, length/2, angle,
-                               rot_axis, self.atom2.at_num, radius, color,
-                               units, vertices, edge_split))
+        if join_halves:
+            # Deselect all objects in scene.
+            for obj in bpy.context.selected_objects:
+                obj.select_set(state=False)
+            # Select all newly created objects.
+            for obj in created_objects:
+                bpy.context.collection.objects.link(obj)
+                obj.select_set(state=True)
 
-        # Deselect all objects in scene.
-        for obj in bpy.context.selected_objects:
-            obj.select_set(state=False)
-        # Select all newly created objects.
-        for obj in created_objects:
-            obj.select_set(state=True)
+            obj = created_objects[0]
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.join()
+            obj.name = "bond_{}({})_{}({})".format(self.atom1.id_num,
+                self.atom1.at_num, self.atom2.id_num, self.atom2.at_num)
 
-        bpy.ops.object.join()
-        bpy.context.object.name = "bond_{}({})_{}({})".format(
-            self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
-            self.atom2.at_num)
+            # An iterable is expected thus return one-tuple
+            return (obj,)
 
-        return bpy.context.object
+        return created_objects
 
 
 class Molecule:
@@ -434,8 +517,9 @@ class Molecule:
         return None
 
     def draw_bonds(self, caps=True, radius=0.2, color='by_element',
-                   units='nm', join=True, with_H=True, subsurf_level=1,
-                   vertices=64, edge_split=False):
+                   units='nm', join=True, join_halves=False, with_H=True,
+                   segments=16, subsurf_level=1, vertices=64, edge_split=False,
+                   bond_template_coll=None, atom_template_coll=None):
         """Draws the molecule's bonds.
 
         Args:
@@ -449,36 +533,76 @@ class Molecule:
                 to angstroms ('A').
             join (bool, =True): If true, all bonds are joined together
                 into a single Bl object.
+            join_halves (bool, =False): Join both halves to one object. Setting
+                it to True will slow down the code as bpy.ops methods are used.
+                Has no effect when join=True.
             with_H (bool, =True): Include H's.
+            segments (int, =16)
             subsurf_level (int, =1): Subsurface subdivisions that will
             	be applied to the atoms (end caps).
             vertices (int, =64): Number of vertices in each bond
                 cylinder.
             edge_split (bool, =False): Whether to apply the edge split
                 modifier to each bond.
+            bond_template_coll (BondTemplateCollection, =None):
+                If specified, the bonds will be copies from the given
+                template collection and all the arguments regarding the bond's
+                mesh will be ignored.
+            atom_template_coll (AtomTemplateCollection, =None):
+                If specified, the atoms will be copies from the given
+                template collection and all the arguments regarding the atom's
+                mesh will be ignored.
 
         Returns:
             The bonds as a single Blender object, if join=True.
             Otherwise, None.
         """
 
+        # Store start time to time script.
+        start_time = time.time()
+
+        collection = bpy.context.collection
+
+        # Create AtomTemplateCollection if necessary
+        newly_created_template_colls = []
+        if not atom_template_coll:
+            atom_template_coll = AtomTemplateCollection(color=color,
+                radius=radius, units=units, subsurf_level=subsurf_level,
+                segments=segments)
+            newly_created_template_colls.append(atom_template_coll)
+        if not bond_template_coll:
+            bond_template_coll = BondTemplateCollection(radius=radius,
+                color=color, units=units, vertices=vertices,
+                edge_split=edge_split)
+            newly_created_template_colls.append(bond_template_coll)
+
+        join_halves = join_halves and not join
+        copy_data = not join
+
         created_objects = []
 
         for b in self.bonds:
             if with_H or (b.atom1.at_num != 1 and b.atom2.at_num != 1):
-                created_objects.append(b.draw(radius=radius,
-                                              color=color,
-                                              units=units,
-                                              vertices=vertices,
-                                              edge_split=edge_split))
+                new_halves = b.draw(bond_template_coll, join_halves, copy_data)
+
+                # Add new objects to internal list
+                created_objects += new_halves
+
+                # Link new objects with collection
+                if not join_halves:
+                    for new_half in new_halves:
+                        collection.objects.link(new_half)
 
         if caps:
             for a in self.atoms:
                 if with_H or a.at_num != 1:
-                    created_objects.append(a.draw(color=color,
-                                                  radius=radius,
-                                                  units=units,
-                                                  subsurf_level=subsurf_level))
+                    new_atom = a.draw(atom_template_coll, copy_data)
+
+                    # Add new objects to internal list
+                    created_objects.append(new_atom)
+
+                    # Link new objects with collection
+                    collection.objects.link(new_atom)
 
         if join:
             # # Deselect anything currently selected.
@@ -495,18 +619,30 @@ class Molecule:
             for obj in created_objects:
                 obj.select_set(state=True)
 
+            bpy.context.view_layer.objects.active = created_objects[0]
+
+            # Copy data of active object so the templates are unaffected of join
+            bpy.context.object.data = bpy.context.object.data.copy()
+
             bpy.ops.object.join()
-
             bpy.context.object.name = self.name + '_bonds'
+            bpy.context.object.data.name = self.name + '_bonds'
 
-            return bpy.context.object
+            ret = bpy.context.object
 
         else:
-            return None
+            ret = None
+
+        # Clean up in case a new template collection was created
+        for new_template_coll in newly_created_template_colls:
+            new_template_coll.delete()
+
+        print("{} seconds".format(time.time()-start_time))
+        return ret
 
     def draw_atoms(self, color='by_element', radius=None, units='nm',
                    scale=1.0, join=True, with_H=True, subsurf_level=2,
-                   segments=16):
+                   segments=16, template_collection=None):
         """Draw spheres for all atoms.
 
         Args:
@@ -523,6 +659,10 @@ class Molecule:
                 be applied to the atoms.
             segments (int, =16): Number of segments in each UV sphere
                 primitive
+            template_collection (AtomTemplateCollection, =None):
+                If specified, the spheres will be copies from the given
+                template collection and all the other arguments will be
+                ignored.
 
         Returns:
             The atoms as a single Blender object, if join=True.
@@ -531,6 +671,19 @@ class Molecule:
 
         # Store start time to time script.
         start_time = time.time()
+
+        collection = bpy.context.collection
+
+        # Create AtomTemplateCollection if necessary
+        if not template_collection:
+            created_new_template_collection = True
+            template_collection = AtomTemplateCollection(color=color,
+                radius=radius, units=units, scale=scale,
+                subsurf_level=subsurf_level, segments=segments)
+        else:
+            created_new_template_collection = False
+
+        copy_data = not join
 
         # Holds links to all created objects, so that they can be
         # joined.
@@ -542,10 +695,14 @@ class Molecule:
         n = 0
         for a in self.atoms:
             if with_H or a.at_num != 1:
-                created_objects.append(a.draw(color=color, radius=radius,
-                                              units=units, scale=scale,
-                                              subsurf_level=subsurf_level,
-                                              segments=segments))
+                atom_sphere = a.draw(template_collection, copy_data)
+
+                # Add new objects to internal list
+                created_objects.append(atom_sphere)
+
+                # Link new objects with collection
+                collection.objects.link(atom_sphere)
+
             n += 1
             bpy.context.window_manager.progress_update(n)
 
@@ -561,11 +718,25 @@ class Molecule:
                 obj.select_set(state=True)
 
             bpy.context.view_layer.objects.active = created_objects[0]
+
+            # Copy data of active object so the templates are unaffected of join
+            bpy.context.object.data = bpy.context.object.data.copy()
+
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_atoms'
+            bpy.context.object.data.name = self.name + '_atoms'
+
+            ret = bpy.context.object
+
+        else:
+            ret = None
+
+        # Clean up in case a new template collection was created
+        if created_new_template_collection:
+            template_collection.delete()
 
         print("{} seconds".format(time.time()-start_time))
-        return
+        return ret
 
     def read_pdb(self, filename):
         """Loads a pdb file into a molecule object. Only accepts atoms
