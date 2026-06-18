@@ -28,6 +28,7 @@ import time
 try:
     import bpy
     import bmesh
+    from mathutils import Matrix, Vector
     bpy_avail = True
 except ImportError:
     bpy_avail = False
@@ -290,28 +291,34 @@ class Bond:
         len_corr = length * UNIT_CONV[units]
         radius_corr = radius * UNIT_CONV[units]
 
-        bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,
-                                            radius=radius_corr,
-                                            depth=len_corr, location=loc_corr,
-                                            end_fill_type='NOTHING')
+        # Build the cylinder mesh directly with bmesh. Avoids the per-bond
+        # depsgraph hit from bpy.ops.mesh.primitive_cylinder_add.
+        bm = bmesh.new()
+        bmesh.ops.create_cone(bm,
+                              cap_ends=False,
+                              segments=vertices,
+                              radius1=radius_corr,
+                              radius2=radius_corr,
+                              depth=len_corr)
+        for f in bm.faces:
+            f.smooth = True
 
-        # Generate an orientation matrix from rot_axis to handle changes in
-        # Blender's API introduced in v 2.8.
-        rot_matrix_z = rot_axis/np.linalg.norm(rot_axis)
-        rot_matrix_y = np.cross(rot_matrix_z, [0, 0, 1])
-        rot_matrix_x = np.cross(rot_matrix_y, rot_matrix_z)
-        rot_matrix_y = rot_matrix_y/np.linalg.norm(rot_matrix_y)
-        rot_matrix_x = rot_matrix_x/np.linalg.norm(rot_matrix_x)
-        rot_matrix = [rot_matrix_x, rot_matrix_y, rot_matrix_z]
+        me = bpy.data.meshes.new("BondMesh")
+        bm.to_mesh(me)
+        bm.free()
 
-        bpy.ops.transform.rotate(value=rot_angle, orient_axis='Z',
-                                 orient_matrix=rot_matrix,
-                                 constraint_axis=(False, False, True))
+        bond_obj = bpy.data.objects.new("bond_half", me)
+        bpy.context.collection.objects.link(bond_obj)
+        bpy.context.view_layer.objects.active = bond_obj
 
-        bpy.ops.object.shade_smooth()
+        # Position and orient via direct matrix assignment (axis-angle),
+        # rather than bpy.ops.transform.rotate on an active selection.
+        axis = Vector(tuple(rot_axis / np.linalg.norm(rot_axis)))
+        bond_obj.matrix_world = (Matrix.Translation(loc_corr)
+                                 @ Matrix.Rotation(rot_angle, 4, axis))
 
         if edge_split:
-            bpy.ops.object.modifier_add(type='EDGE_SPLIT')
+            bond_obj.modifiers.new('EdgeSplit', 'EDGE_SPLIT')
             bpy.ops.object.modifier_apply(modifier='EdgeSplit')
 
         if color == 'by_element':
@@ -322,10 +329,9 @@ class Bond:
         if bond_color not in bpy.data.materials:
             _create_new_material(bond_color, COLORS[bond_color])
 
-        bpy.context.object.data.materials.append(
-            bpy.data.materials[bond_color])
+        bond_obj.data.materials.append(bpy.data.materials[bond_color])
 
-        return bpy.context.object
+        return bond_obj
 
     def draw(self, radius=0.2, color='by_element', units='nm',
              vertices=64, edge_split=False):
@@ -397,41 +403,36 @@ class Molecule:
 
     def __init__(self, name='molecule', atoms=None, bonds=None):
         self.name = name
-        if atoms is None:
-            self.atoms = []
-        else:
-            self.atoms = atoms
-        if bonds is None:
-            self.bonds = []
-        else:
-            self.bonds = bonds
+        self.atoms = list(atoms) if atoms is not None else []
+        self.bonds = list(bonds) if bonds is not None else []
+        self._atoms_by_id = {a.id_num: a for a in self.atoms}
+        self._bonds_by_key = {
+            frozenset((b.atom1.id_num, b.atom2.id_num)): b
+            for b in self.bonds
+            }
 
     def add_atom(self, atom):
         """Adds an atom to the molecule."""
         self.atoms.append(atom)
+        self._atoms_by_id[atom.id_num] = atom
 
     def add_bond(self, a1id, a2id):
         """Adds a bond to the molecule, using atom ids."""
-        if not self.search_bondids(a1id, a2id):
-            self.bonds.append(Bond(self.search_atomid(a1id),
-                                   self.search_atomid(a2id)))
+        key = frozenset((a1id, a2id))
+        if key in self._bonds_by_key:
+            return
+        bond = Bond(self._atoms_by_id[a1id], self._atoms_by_id[a2id])
+        self.bonds.append(bond)
+        self._bonds_by_key[key] = bond
 
     def search_atomid(self, id_to_search):
-        """Searches through atom list and returns atom object
-        corresponding to (unique) id."""
-        for atom in self.atoms:
-            if atom.id_num == id_to_search:
-                return atom
-        return None
+        """Returns the atom object with the given (unique) id, or None."""
+        return self._atoms_by_id.get(id_to_search)
 
     def search_bondids(self, id1, id2):
-        """Searches through bond list and returns bond object
-        corresponding to (unique) ids."""
-        for b in self.bonds:
-            if ((id1, id2) == (b.atom1.id_num, b.atom2.id_num) or
-                    (id2, id1) == (b.atom1.id_num, b.atom2.id_num)):
-                return b
-        return None
+        """Returns the bond object between the two (unique) atom ids,
+        or None."""
+        return self._bonds_by_key.get(frozenset((id1, id2)))
 
     def draw_bonds(self, caps=True, radius=0.2, color='by_element',
                    units='nm', join=True, with_H=True, subsurf_level=1,
