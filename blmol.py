@@ -178,8 +178,9 @@ class Atom:
         """Draw the atom in Blender.
 
         Args:
-            color (string, ='by_element'): If None, coloring is done by
-                element. Otherwise specifies the color.
+            color (string, ='by_element'): If 'by_element', coloring
+                uses ELEMENT_COLORS. Otherwise specifies the color
+                (must be a key in COLORS).
             radius (string, =None): If None, draws at the van der Waals
                 radius. Otherwise specifies the radius in angstroms.
             units (sting, ='nm'): 1 BU = 1 nm by default. Can also be
@@ -199,7 +200,7 @@ class Atom:
         loc_corr = tuple(c*UNIT_CONV[units] for c in self.location)
 
         # Work out the sphere radius in BU.
-        if not radius:
+        if radius is None:
             rad_adj = RADII[self.at_num]*UNIT_CONV[units]*scale
         else:
             rad_adj = radius*UNIT_CONV[units]*scale
@@ -553,7 +554,8 @@ class Molecule:
         # End progress monitor.
         bpy.context.window_manager.progress_end()
 
-        if join:
+        joined = None
+        if join and created_objects:
             # Deselect all objects in scene.
             for obj in bpy.context.selected_objects:
                 obj.select_set(state=False)
@@ -564,9 +566,10 @@ class Molecule:
             bpy.context.view_layer.objects.active = created_objects[0]
             bpy.ops.object.join()
             bpy.context.object.name = self.name + '_atoms'
+            joined = bpy.context.object
 
         print("{} seconds".format(time.time()-start_time))
-        return
+        return joined
 
     def read_pdb(self, filename):
         """Loads a pdb file into a molecule object. Only accepts atoms
@@ -578,17 +581,17 @@ class Molecule:
         """
 
         with open(filename) as pdbfile:
-            for line in pdbfile:
-                if line[0:4] == "ATOM":
+            for line_num, line in enumerate(pdbfile, start=1):
+                if line[0:4] == "ATOM" or line[0:6] == "HETATM":
+                    symbol = line[76:78].strip().upper()
+                    try:
+                        atnum = ATOMIC_NUMBERS[symbol]
+                    except KeyError:
+                        raise ValueError(
+                            "Unsupported element {!r} in {} (line {}): {}"
+                            .format(symbol, filename, line_num,
+                                    line.rstrip()))
                     idnum = int(line[6:11])
-                    atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
-                    coords = np.array((float(line[30:38]), float(line[38:46]),
-                                       float(line[46:54])))
-                    self.add_atom(Atom(atnum, coords, idnum))
-
-                elif line[0:6] == "HETATM":
-                    idnum = int(line[6:11])
-                    atnum = ATOMIC_NUMBERS[line[76:78].strip().upper()]
                     coords = np.array((float(line[30:38]), float(line[38:46]),
                                        float(line[46:54])))
                     self.add_atom(Atom(atnum, coords, idnum))
