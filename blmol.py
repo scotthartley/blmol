@@ -29,9 +29,8 @@ try:
     import bpy
     import bmesh
     from mathutils import Matrix, Vector
-    bpy_avail = True
 except ImportError:
-    bpy_avail = False
+    pass
 
 # Dictionary of color definitions (RGB + alpha tuples). Blender RGB
 # colors can be conveniently determined by using a uniform png of the
@@ -393,13 +392,11 @@ class Bond:
                                rot_axis, self.atom2.at_num, radius, color,
                                units, vertices, edge_split))
 
-        # Deselect all objects in scene.
-        for obj in bpy.context.selected_objects:
-            obj.select_set(state=False)
-        # Select all newly created objects.
+        bpy.ops.object.select_all(action='DESELECT')
         for obj in created_objects:
             obj.select_set(state=True)
 
+        bpy.context.view_layer.objects.active = created_objects[0]
         bpy.ops.object.join()
         bpy.context.object.name = "bond_{}({})_{}({})".format(
             self.atom1.id_num, self.atom1.at_num, self.atom2.id_num,
@@ -497,20 +494,11 @@ class Molecule:
                                                   subsurf_level=subsurf_level))
 
         if join:
-            # # Deselect anything currently selected.
-            # for obj in bpy.context.selected_objects:
-            #     obj.select = False
-
-            # # Select drawn bonds.
-            # for obj in created_objects:
-            #     obj.select = True
-            # Deselect all objects in scene.
-            for obj in bpy.context.selected_objects:
-                obj.select_set(state=False)
-            # Select drawn bonds.
+            bpy.ops.object.select_all(action='DESELECT')
             for obj in created_objects:
                 obj.select_set(state=True)
 
+            bpy.context.view_layer.objects.active = created_objects[0]
             bpy.ops.object.join()
 
             bpy.context.object.name = self.name + '_bonds'
@@ -522,7 +510,7 @@ class Molecule:
 
     def draw_atoms(self, color='by_element', radius=None, units='nm',
                    scale=1.0, join=True, with_H=True, subsurf_level=2,
-                   segments=16):
+                   segments=16, verbose=False):
         """Draw spheres for all atoms.
 
         Args:
@@ -539,13 +527,13 @@ class Molecule:
                 be applied to the atoms.
             segments (int, =16): Number of segments in each UV sphere
                 primitive
+            verbose (bool, =False): If true, prints elapsed draw time.
 
         Returns:
             The atoms as a single Blender object, if join=True.
             Otherwise, None.
         """
 
-        # Store start time to time script.
         start_time = time.time()
 
         # Holds links to all created objects, so that they can be
@@ -576,10 +564,7 @@ class Molecule:
 
         joined = None
         if join and created_objects:
-            # Deselect all objects in scene.
-            for obj in bpy.context.selected_objects:
-                obj.select_set(state=False)
-            # Select all newly created objects.
+            bpy.ops.object.select_all(action='DESELECT')
             for obj in created_objects:
                 obj.select_set(state=True)
 
@@ -588,7 +573,8 @@ class Molecule:
             bpy.context.object.name = self.name + '_atoms'
             joined = bpy.context.object
 
-        print("{} seconds".format(time.time()-start_time))
+        if verbose:
+            print("{} seconds".format(time.time()-start_time))
         return joined
 
     def read_pdb(self, filename):
@@ -602,7 +588,7 @@ class Molecule:
 
         with open(filename) as pdbfile:
             for line_num, line in enumerate(pdbfile, start=1):
-                if line[0:4] == "ATOM" or line[0:6] == "HETATM":
+                if line[0:6] in ("ATOM  ", "HETATM"):
                     symbol = line[76:78].strip().upper()
                     try:
                         atnum = ATOMIC_NUMBERS[symbol]
