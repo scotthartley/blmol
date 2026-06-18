@@ -486,12 +486,14 @@ class Molecule:
                                               edge_split=edge_split))
 
         if caps:
+            cap_mesh_cache = {}
             for a in self.atoms:
                 if with_H or a.at_num != 1:
                     created_objects.append(a.draw(color=color,
                                                   radius=radius,
                                                   units=units,
-                                                  subsurf_level=subsurf_level))
+                                                  subsurf_level=subsurf_level,
+                                                  mesh_cache=cap_mesh_cache))
 
         if join:
             bpy.ops.object.select_all(action='DESELECT')
