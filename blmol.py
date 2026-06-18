@@ -174,7 +174,7 @@ class Atom:
         self.id_num = id_num
 
     def draw(self, color='by_element', radius=None, units='nm',
-             scale=1.0, subsurf_level=2, segments=16):
+             scale=1.0, subsurf_level=2, segments=16, mesh_cache=None):
         """Draw the atom in Blender.
 
         Args:
@@ -186,11 +186,16 @@ class Atom:
             units (sting, ='nm'): 1 BU = 1 nm by default. Can also be
                 set to angstroms.
             scale (float, =1.0): Scaling factor for the atom. Useful
-                when generating ball-and-stick models.
+                when generating ball-and-stick models. Applied via
+                object scale so the underlying mesh can be shared.
             subsurf_level (int, =2): Subsurface subdivisions that will
                 be applied.
             segments (int, =16): Number of segments in each UV sphere
                 primitive
+            mesh_cache (dict, =None): Optional shared dict of
+                {(at_num, rad_adj, segments): bpy.types.Mesh} used to
+                reuse one mesh across atoms with matching geometry.
+                Pass an empty dict to enable instancing.
 
         Returns:
             The blender object.
@@ -199,26 +204,30 @@ class Atom:
         # The corrected location (i.e., scaled to units.)
         loc_corr = tuple(c*UNIT_CONV[units] for c in self.location)
 
-        # Work out the sphere radius in BU.
+        # Sphere radius in BU. Scale is applied to the object below so
+        # the mesh stays canonical and can be shared across atoms.
         if radius is None:
-            rad_adj = RADII[self.at_num]*UNIT_CONV[units]*scale
+            rad_adj = RADII[self.at_num]*UNIT_CONV[units]
         else:
-            rad_adj = radius*UNIT_CONV[units]*scale
+            rad_adj = radius*UNIT_CONV[units]
 
-        # Create sphere as bmesh.
-        bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm,
-                                  u_segments=segments,
-                                  v_segments=segments,
-                                  radius=rad_adj)
+        mesh_key = (self.at_num, rad_adj, segments)
+        me = mesh_cache.get(mesh_key) if mesh_cache is not None else None
+        new_mesh = me is None
+        if new_mesh:
+            bm = bmesh.new()
+            bmesh.ops.create_uvsphere(bm,
+                                      u_segments=segments,
+                                      v_segments=segments,
+                                      radius=rad_adj)
+            for f in bm.faces:
+                f.smooth = True
 
-        for f in bm.faces:
-            f.smooth = True
-
-        # Convert to mesh.
-        me = bpy.data.meshes.new("Mesh")
-        bm.to_mesh(me)
-        bm.free()
+            me = bpy.data.meshes.new("atom_mesh({})".format(self.at_num))
+            bm.to_mesh(me)
+            bm.free()
+            if mesh_cache is not None:
+                mesh_cache[mesh_key] = me
 
         # Assign mesh to object and place in space.
         atom_sphere = bpy.data.objects.new("atom({})_{}".format(
@@ -226,22 +235,27 @@ class Atom:
         bpy.context.collection.objects.link(atom_sphere)
 
         atom_sphere.location = loc_corr
+        if scale != 1.0:
+            atom_sphere.scale = (scale, scale, scale)
 
         # Assign subsurface modifier, if requested
         if subsurf_level != 0:
             atom_sphere.modifiers.new('Subsurf', 'SUBSURF')
             atom_sphere.modifiers['Subsurf'].levels = subsurf_level
 
-        # Color atom and assign material
-        if color == 'by_element':
-            atom_color = ELEMENT_COLORS[self.at_num]
-        else:
-            atom_color = color
+        # Color atom and assign material. Material lives on the mesh,
+        # so only append when the mesh is freshly built; reused meshes
+        # already carry the material from the first atom.
+        if new_mesh:
+            if color == 'by_element':
+                atom_color = ELEMENT_COLORS[self.at_num]
+            else:
+                atom_color = color
 
-        if atom_color not in bpy.data.materials:
-            _create_new_material(atom_color, COLORS[atom_color])
+            if atom_color not in bpy.data.materials:
+                _create_new_material(atom_color, COLORS[atom_color])
 
-        atom_sphere.data.materials.append(bpy.data.materials[atom_color])
+            me.materials.append(bpy.data.materials[atom_color])
 
         return atom_sphere
 
@@ -538,6 +552,11 @@ class Molecule:
         # joined.
         created_objects = []
 
+        # Shared per-call mesh cache: one UV sphere per (at_num,
+        # resolved-radius-in-BU, segments) tuple, reused as linked
+        # instances across atoms.
+        mesh_cache = {}
+
         # Initiate progress monitor over mouse cursor.
         bpy.context.window_manager.progress_begin(0, len(self.atoms))
 
@@ -547,7 +566,8 @@ class Molecule:
                 created_objects.append(a.draw(color=color, radius=radius,
                                               units=units, scale=scale,
                                               subsurf_level=subsurf_level,
-                                              segments=segments))
+                                              segments=segments,
+                                              mesh_cache=mesh_cache))
             n += 1
             bpy.context.window_manager.progress_update(n)
 
